@@ -1,0 +1,25 @@
+# ===== Build =====
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== Credenciales locales (NUNCA versionar) =====
+src/main/resources/application-local.yml
+application-local.yml
+.env
+.env.local
+
+# ===== Logs =====
+*.log
+
+# ===== IDE / Sistema =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+.DS_Store
+Thumbs.db
