@@ -38,6 +38,10 @@ public class ModuleSection {
     @Column(name = "weight_percent", nullable = false, precision = 5, scale = 2)
     private BigDecimal weightPercent;
 
+    /** Texto de lectura de la teoría o instrucciones de la práctica. */
+    @Column(columnDefinition = "TEXT")
+    private String content;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
@@ -63,6 +67,9 @@ public class ModuleSection {
 
     public BigDecimal getWeightPercent() { return weightPercent; }
     public void setWeightPercent(BigDecimal weightPercent) { this.weightPercent = weightPercent; }
+
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

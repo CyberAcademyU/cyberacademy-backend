@@ -9,10 +9,10 @@ import com.cyberacademy.module.dto.*;
 import com.cyberacademy.module.entity.*;
 import com.cyberacademy.module.repository.CourseModuleRepository;
 import com.cyberacademy.module.repository.ModuleSectionRepository;
+import com.cyberacademy.module.repository.SectionQuestionRepository;
 import com.cyberacademy.module.repository.StudentModuleProgressRepository;
 import com.cyberacademy.module.repository.StudentSectionProgressRepository;
 import com.cyberacademy.security.CurrentUserProvider;
-import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,24 +36,24 @@ public class ModuleService {
     private final ModuleSectionRepository sectionRepository;
     private final StudentModuleProgressRepository moduleProgressRepository;
     private final StudentSectionProgressRepository sectionProgressRepository;
+    private final SectionQuestionRepository questionRepository;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
-    private final EntityManager entityManager;
 
     public ModuleService(CourseModuleRepository moduleRepository,
                          ModuleSectionRepository sectionRepository,
                          StudentModuleProgressRepository moduleProgressRepository,
                          StudentSectionProgressRepository sectionProgressRepository,
+                         SectionQuestionRepository questionRepository,
                          UserRepository userRepository,
-                         CurrentUserProvider currentUserProvider,
-                         EntityManager entityManager) {
+                         CurrentUserProvider currentUserProvider) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
         this.moduleProgressRepository = moduleProgressRepository;
         this.sectionProgressRepository = sectionProgressRepository;
+        this.questionRepository = questionRepository;
         this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
-        this.entityManager = entityManager;
     }
 
     // =========================================================================
@@ -236,48 +236,6 @@ public class ModuleService {
         return buildProgress(moduleId, currentUserProvider.requireCurrentUser());
     }
 
-    @Transactional
-    public ModuleProgressResponse recordSectionScore(UUID moduleId, UUID sectionId, RecordScoreRequest request) {
-        User student = currentUserProvider.requireCurrentUser();
-        CourseModule module = findModule(moduleId);
-
-        ModuleSection section = sectionRepository.findByIdAndModuleId(sectionId, moduleId)
-                .orElseThrow(() -> new ResourceNotFoundException("La sección no pertenece a este módulo"));
-
-        StudentModuleProgress progress = moduleProgressRepository
-                .findByUserIdAndModuleId(student.getId(), moduleId)
-                .orElseGet(() -> {
-                    StudentModuleProgress created = new StudentModuleProgress();
-                    created.setUser(student);
-                    created.setModule(module);
-                    return moduleProgressRepository.saveAndFlush(created);
-                });
-
-        StudentSectionProgress item = sectionProgressRepository
-                .findByModuleProgressIdAndSectionId(progress.getId(), sectionId)
-                .orElseGet(() -> {
-                    StudentSectionProgress created = new StudentSectionProgress();
-                    created.setModuleProgress(progress);
-                    created.setSection(section);
-                    return created;
-                });
-
-        boolean completed = request.getCompleted() == null || request.getCompleted();
-        item.setScore(request.getScore());
-        item.setAttempts(item.getAttempts() + 1);
-        item.setStatus(completed ? ProgressStatus.COMPLETED : ProgressStatus.IN_PROGRESS);
-        item.setCompletedAt(completed ? OffsetDateTime.now() : null);
-        sectionProgressRepository.saveAndFlush(item);
-
-        // El trigger trg_section_progress_refresh ya recalculó el módulo en la BD.
-        // Refrescamos la entidad para devolver el estado y la nota reales.
-        entityManager.refresh(progress);
-
-        List<ModuleSection> sections = sortedSections(moduleId);
-        List<StudentSectionProgress> items = sectionProgressRepository.findByModuleProgressId(progress.getId());
-        return new ModuleProgressResponse(toSummary(module, sections, progress, items), toSectionProgress(sections, items));
-    }
-
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -384,21 +342,42 @@ public class ModuleService {
         Map<UUID, StudentSectionProgress> bySection = items.stream()
                 .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
 
-        return sections.stream()
-                .map(section -> {
-                    StudentSectionProgress item = bySection.get(section.getId());
-                    return new SectionProgressResponse(
-                            section.getId(),
-                            section.getSectionType(),
-                            section.getSectionOrder(),
-                            section.getTitle(),
-                            section.getWeightPercent(),
-                            item == null ? ProgressStatus.NOT_STARTED : item.getStatus(),
-                            item == null ? null : item.getScore(),
-                            item == null ? 0 : item.getAttempts(),
-                            item == null ? null : item.getCompletedAt());
-                })
-                .toList();
+        // Si la práctica ya está completada, el módulo terminó y todo queda bloqueado.
+        boolean moduleFinished = sections.stream()
+                .filter(section -> section.getSectionType() == SectionType.PRACTICE)
+                .map(section -> bySection.get(section.getId()))
+                .anyMatch(item -> item != null && item.getStatus() == ProgressStatus.COMPLETED);
+
+        List<SectionProgressResponse> result = new ArrayList<>();
+        boolean allPreviousCompleted = true;
+
+        for (ModuleSection section : sections) {
+            StudentSectionProgress item = bySection.get(section.getId());
+            ProgressStatus status = item == null ? ProgressStatus.NOT_STARTED : item.getStatus();
+            boolean completed = status == ProgressStatus.COMPLETED;
+
+            // Solo la primera sesión pendiente está abierta (orden estricto).
+            boolean accessible = !moduleFinished && !completed && allPreviousCompleted;
+            boolean locked = !accessible && !completed;
+
+            result.add(new SectionProgressResponse(
+                    section.getId(),
+                    section.getSectionType(),
+                    section.getSectionOrder(),
+                    section.getTitle(),
+                    section.getWeightPercent(),
+                    status,
+                    item == null ? null : item.getScore(),
+                    item == null ? 0 : item.getAttempts(),
+                    item == null ? null : item.getCompletedAt(),
+                    accessible,
+                    locked,
+                    (int) questionRepository.countBySectionId(section.getId())));
+
+            allPreviousCompleted = allPreviousCompleted && completed;
+        }
+
+        return result;
     }
 
     private ModuleResponse toModuleResponse(CourseModule module, List<ModuleSection> sections) {

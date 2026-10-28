@@ -89,7 +89,11 @@ Base: `/api/v1`
 | PUT | `/modules/{moduleId}/sections/{sectionId}` | ADMIN | Actualiza título y/o peso de una sección |
 | PUT | `/modules/{moduleId}/weights` | ADMIN | Actualiza los 4 pesos en una sola petición (deben sumar 100) |
 | GET | `/modules/{moduleId}/progress` | JWT | Mi progreso en ese módulo, sección por sección |
-| PUT | `/modules/{moduleId}/sections/{sectionId}/score` | JWT | Registra mi nota en una sección |
+| GET | `/modules/{moduleId}/sections/{sectionId}` | JWT | Sesión desbloqueada: contenido y preguntas (sin respuestas) |
+| POST | `/modules/{moduleId}/sections/{sectionId}/check` | JWT | Comprueba la pregunta de comprensión de una teoría |
+| POST | `/modules/{moduleId}/practice/submit` | JWT | Corrige la práctica (único intento) y guarda la nota |
+| GET | `/modules/{moduleId}/content` | ADMIN | Contenido y preguntas de las 4 secciones (con respuestas) |
+| PUT | `/modules/{moduleId}/sections/{sectionId}/content` | ADMIN | Guarda título, contenido y preguntas de una sesión |
 | GET | `/progress` | JWT | Resumen de mi progreso en todos los módulos |
 | GET | `/progress/student/{userId}` | ADMIN | Resumen del progreso de un estudiante |
 | GET | `/admin/overview` | ADMIN | Métricas globales: estudiantes, nota media, avance y finalización por módulo |
@@ -97,23 +101,44 @@ Base: `/api/v1`
 
 ## Módulos y progreso
 
-Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automáticamente por un trigger al crear el módulo, con pesos por defecto `20 / 20 / 20 / 40`.
+Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automáticamente por un trigger al crear el módulo.
 
-- La nota del módulo se calcula en la base de datos:
-  `nota = Σ(nota_sección × peso) / Σ(peso de secciones calificadas)`.
-- El estado pasa solo: `NOT_STARTED` → `IN_PROGRESS` → `COMPLETED` (nota ≥ `passing_score`, 70 por defecto) o `FAILED`.
-- Si un administrador cambia los pesos, los progresos ya calculados se recalculan (migración `V4`).
-- Registrar una nota es idempotente: vuelve a enviarla para corregirla; el contador `attempts` aumenta.
+Flujo del estudiante:
 
-Ejemplo de registro de nota:
+1. Lee la **Teoría 1** y responde su pregunta de comprensión. Si acierta, la sesión queda completada y se desbloquea la **Teoría 2**; después la **3**.
+2. Las sesiones completadas quedan bloqueadas: no se puede volver atrás ni saltar el orden.
+3. Al completar las 3 teorías se desbloquea la **Práctica**, un cuestionario con las preguntas que definió el administrador.
+4. La práctica tiene **un solo intento**. El backend la corrige (`aciertos / total × 100`), guarda la nota y bloquea todas las sesiones.
+5. La nota del módulo es exactamente la nota de la práctica (las teorías no llevan nota).
+6. El estado lo calcula la base de datos: `NOT_STARTED` → `IN_PROGRESS` → `COMPLETED` (nota ≥ `passing_score`, 70 por defecto) o `FAILED`.
+
+Los pesos de las secciones siguen existiendo para calcular el porcentaje de avance (`20 / 20 / 20 / 40` por defecto), pero la nota final sale solo de la práctica. Si se cambian los pesos, los progresos ya calculados se recalculan (migración `V4`).
+
+Ejemplo: guardar una teoría (solo ADMIN):
 
 ```http
-PUT /api/v1/modules/{moduleId}/sections/{sectionId}/score
-Authorization: Bearer <token>
+PUT /api/v1/modules/{moduleId}/sections/{sectionId}/content
+Authorization: Bearer <token-admin>
 Content-Type: application/json
 
-{ "score": 85, "completed": true }
+{
+  "title": "Correos maliciosos",
+  "content": "Un correo malicioso suele incluir urgencia, enlaces acortados y remitentes desconocidos…",
+  "questions": [
+    {
+      "prompt": "¿Cuál de estas señales es sospechosa?",
+      "options": [
+        { "text": "Un enlace acortado de un remitente desconocido", "correct": true },
+        { "text": "El logotipo de la empresa", "correct": false },
+        { "text": "Un saludo cordial", "correct": false },
+        { "text": "La firma del remitente", "correct": false }
+      ]
+    }
+  ]
+}
 ```
+
+Las teorías deben tener exactamente **1** pregunta; la práctica, entre **1 y 50**. Cada pregunta debe tener entre **2 y 6** opciones y exactamente una correcta.
 
 
 ## Validaciones de correo
@@ -132,11 +157,11 @@ src/main/java/com/cyberacademy
 │   ├── repository   # Spring Data JPA
 │   └── service      # AuthService, EmailService, EmailAddressVerifier
 ├── module
-│   ├── controller   # ModuleController, ProgressController
-│   ├── dto          # requests, respuestas y resúmenes
-│   ├── entity       # CourseModule, ModuleSection, Student*Progress
+│   ├── controller   # ModuleController, LearningController, ProgressController
+│   ├── dto          # requests, respuestas, resúmenes y cuestionarios
+│   ├── entity       # CourseModule, ModuleSection, SectionQuestion, QuestionOption, Student*Progress
 │   ├── repository   # Spring Data JPA
-│   └── service      # ModuleService (catálogo y progreso)
+│   └── service      # ModuleService (catálogo y progreso) y QuizService (flujo guiado)
 ├── admin
 │   ├── controller   # AdminDashboardController (/admin/overview, /admin/students)
 │   ├── dto          # estadísticas y listado de estudiantes

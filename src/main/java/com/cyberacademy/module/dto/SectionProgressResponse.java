@@ -16,5 +16,8 @@ public record SectionProgressResponse(
         ProgressStatus status,
         BigDecimal score,
         int attempts,
-        OffsetDateTime completedAt
+        OffsetDateTime completedAt,
+        boolean accessible,
+        boolean locked,
+        int questionCount
 ) {}

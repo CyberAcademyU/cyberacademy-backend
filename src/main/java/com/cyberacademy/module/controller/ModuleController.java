@@ -90,14 +90,4 @@ public class ModuleController {
                 moduleService.getMyProgress(moduleId)));
     }
 
-    /** Registrar la nota de una sección. El estado del módulo lo recalcula la BD. */
-    @PutMapping("/{moduleId}/sections/{sectionId}/score")
-    public ResponseEntity<ApiResponse<ModuleProgressResponse>> recordScore(
-            @PathVariable UUID moduleId,
-            @PathVariable UUID sectionId,
-            @Valid @RequestBody RecordScoreRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Nota registrada correctamente",
-                moduleService.recordSectionScore(moduleId, sectionId, request)));
-    }
 }
