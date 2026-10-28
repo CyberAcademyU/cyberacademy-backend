@@ -82,6 +82,37 @@ Base: `/api/v1`
 | POST | `/auth/verify-otp` | — | Verifica el código y activa la cuenta |
 | POST | `/auth/resend-otp` | — | Reenvía un nuevo código |
 | POST | `/auth/login` | — | Login; devuelve JWT |
+| GET | `/modules` | JWT | Catálogo de módulos activos con sus 4 secciones |
+| GET | `/modules/{id}` | JWT | Detalle de un módulo |
+| POST | `/modules` | ADMIN | Crea un módulo (la BD genera 3 teoría + 1 práctica) |
+| PUT | `/modules/{id}` | ADMIN | Actualiza título, descripción, orden, nota mínima o estado |
+| PUT | `/modules/{moduleId}/sections/{sectionId}` | ADMIN | Actualiza título y/o peso de una sección |
+| PUT | `/modules/{moduleId}/weights` | ADMIN | Actualiza los 4 pesos en una sola petición (deben sumar 100) |
+| GET | `/modules/{moduleId}/progress` | JWT | Mi progreso en ese módulo, sección por sección |
+| PUT | `/modules/{moduleId}/sections/{sectionId}/score` | JWT | Registra mi nota en una sección |
+| GET | `/progress` | JWT | Resumen de mi progreso en todos los módulos |
+| GET | `/progress/student/{userId}` | ADMIN | Resumen del progreso de un estudiante |
+
+## Módulos y progreso
+
+Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automáticamente por un trigger al crear el módulo, con pesos por defecto `20 / 20 / 20 / 40`.
+
+- La nota del módulo se calcula en la base de datos:
+  `nota = Σ(nota_sección × peso) / Σ(peso de secciones calificadas)`.
+- El estado pasa solo: `NOT_STARTED` → `IN_PROGRESS` → `COMPLETED` (nota ≥ `passing_score`, 70 por defecto) o `FAILED`.
+- Si un administrador cambia los pesos, los progresos ya calculados se recalculan (migración `V4`).
+- Registrar una nota es idempotente: vuelve a enviarla para corregirla; el contador `attempts` aumenta.
+
+Ejemplo de registro de nota:
+
+```http
+PUT /api/v1/modules/{moduleId}/sections/{sectionId}/score
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "score": 85, "completed": true }
+```
+
 
 ## Validaciones de correo
 
@@ -98,11 +129,22 @@ src/main/java/com/cyberacademy
 │   ├── exception    # EmailDeliveryException
 │   ├── repository   # Spring Data JPA
 │   └── service      # AuthService, EmailService, EmailAddressVerifier
+├── module
+│   ├── controller   # ModuleController, ProgressController
+│   ├── dto          # requests, respuestas y resúmenes
+│   ├── entity       # CourseModule, ModuleSection, Student*Progress
+│   ├── repository   # Spring Data JPA
+│   └── service      # ModuleService (catálogo y progreso)
+├── common/exception # ResourceNotFound, Conflict, BadRequest
 ├── config           # GlobalExceptionHandler
-└── security         # JWT, filtro, Argon2id, CORS
+└── security         # JWT, filtro, Argon2id, CORS, CurrentUserProvider
 src/main/resources
 ├── application.yml
-└── db/migration     # V1__init_auth_schema.sql
+└── db/migration
+    ├── V1__init_auth_schema.sql
+    ├── V2__modules_and_progress.sql
+    ├── V3__secure_modules_objects.sql
+    └── V4__recalculate_on_weight_change.sql
 ```
 
 ## Seguridad
