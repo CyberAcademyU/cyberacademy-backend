@@ -47,6 +47,8 @@ public class SecurityConfig {
                 .requestMatchers("/auth/**").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
+                // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
+                .requestMatchers("/admin/**").hasRole("ADMIN")
                 // Cualquier otra requiere autenticación
                 .anyRequest().authenticated()
             )

@@ -92,6 +92,8 @@ Base: `/api/v1`
 | PUT | `/modules/{moduleId}/sections/{sectionId}/score` | JWT | Registra mi nota en una sección |
 | GET | `/progress` | JWT | Resumen de mi progreso en todos los módulos |
 | GET | `/progress/student/{userId}` | ADMIN | Resumen del progreso de un estudiante |
+| GET | `/admin/overview` | ADMIN | Métricas globales: estudiantes, nota media, avance y finalización por módulo |
+| GET | `/admin/students` | ADMIN | Estudiantes reales con módulos completados, nota media y última actividad |
 
 ## Módulos y progreso
 
@@ -135,6 +137,10 @@ src/main/java/com/cyberacademy
 │   ├── entity       # CourseModule, ModuleSection, Student*Progress
 │   ├── repository   # Spring Data JPA
 │   └── service      # ModuleService (catálogo y progreso)
+├── admin
+│   ├── controller   # AdminDashboardController (/admin/overview, /admin/students)
+│   ├── dto          # estadísticas y listado de estudiantes
+│   └── service      # AdminDashboardService (agregaciones SQL)
 ├── common/exception # ResourceNotFound, Conflict, BadRequest
 ├── config           # GlobalExceptionHandler
 └── security         # JWT, filtro, Argon2id, CORS, CurrentUserProvider
