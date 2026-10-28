@@ -298,24 +298,21 @@ public class ModuleService {
         Map<UUID, StudentSectionProgress> bySection = items.stream()
                 .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
 
-        BigDecimal totalWeight = BigDecimal.ZERO;
-        BigDecimal doneWeight = BigDecimal.ZERO;
         long completedSections = 0;
 
         for (ModuleSection section : sections) {
-            BigDecimal weight = section.getWeightPercent() == null ? BigDecimal.ZERO : section.getWeightPercent();
-            totalWeight = totalWeight.add(weight);
-
             StudentSectionProgress item = bySection.get(section.getId());
             if (item != null && item.getStatus() == ProgressStatus.COMPLETED) {
                 completedSections++;
-                doneWeight = doneWeight.add(weight);
             }
         }
 
-        BigDecimal progressPercent = totalWeight.signum() == 0
+        // Cada sesión cuenta igual: 3 teorías = 75% y la práctica = 100%.
+        BigDecimal progressPercent = sections.isEmpty()
                 ? BigDecimal.ZERO
-                : doneWeight.multiply(BigDecimal.valueOf(100)).divide(totalWeight, 2, RoundingMode.HALF_UP);
+                : BigDecimal.valueOf(completedSections)
+                    .multiply(BigDecimal.valueOf(100))
+                    .divide(BigDecimal.valueOf(sections.size()), 2, RoundingMode.HALF_UP);
 
         ProgressStatus status = progress == null ? ProgressStatus.NOT_STARTED : progress.getStatus();
         BigDecimal score = progress == null ? null : progress.getScore();

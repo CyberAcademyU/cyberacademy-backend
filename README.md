@@ -97,7 +97,7 @@ Base: `/api/v1`
 | GET | `/progress` | JWT | Resumen de mi progreso en todos los módulos |
 | GET | `/progress/student/{userId}` | ADMIN | Resumen del progreso de un estudiante |
 | GET | `/admin/overview` | ADMIN | Métricas globales: estudiantes, nota media, avance y finalización por módulo |
-| GET | `/admin/students` | ADMIN | Estudiantes reales con módulos completados, nota media y última actividad |
+| GET | `/admin/students` | ADMIN | Estudiantes reales con módulos completados, total acumulado, nota media y última actividad (el detalle por módulo sale de `/progress/student/{userId}`) |
 
 ## Módulos y progreso
 
@@ -112,7 +112,9 @@ Flujo del estudiante:
 5. La nota del módulo es exactamente la nota de la práctica (las teorías no llevan nota).
 6. El estado lo calcula la base de datos: `NOT_STARTED` → `IN_PROGRESS` → `COMPLETED` (nota ≥ `passing_score`, 70 por defecto) o `FAILED`.
 
-Los pesos de las secciones siguen existiendo para calcular el porcentaje de avance (`20 / 20 / 20 / 40` por defecto), pero la nota final sale solo de la práctica. Si se cambian los pesos, los progresos ya calculados se recalculan (migración `V4`).
+El porcentaje de avance se calcula por sesiones completadas: cada una de las 4 sesiones vale lo mismo, así que al terminar las 3 teorías el módulo muestra **75 %** y al enviar la práctica llega al **100 %** (migración `V6`). Los pesos de las secciones (`20 / 20 / 20 / 40` por defecto) se conservan para la fórmula histórica de la nota, pero ya no afectan al avance. La nota final del módulo sale únicamente de la práctica.
+
+El panel de administración muestra, por cada estudiante, la nota final de cada módulo y el **total acumulado** (suma de las notas de los módulos calificados sobre `módulos activos × 100`), además de la nota media y el avance.
 
 Ejemplo: guardar una teoría (solo ADMIN):
 

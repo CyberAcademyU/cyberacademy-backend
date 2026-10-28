@@ -38,6 +38,8 @@ public class AdminDashboardService {
                    u.created_at,
                    COALESCE(agg.modules_completed, 0) AS modules_completed,
                    (SELECT COUNT(*) FROM modules WHERE is_active) AS modules_total,
+                   agg.total_score,
+                   COALESCE(agg.graded_modules, 0) AS graded_modules,
                    agg.average_score,
                    COALESCE(ROUND(agg.progress_sum / NULLIF((SELECT COUNT(*) FROM modules WHERE is_active), 0), 2), 0) AS progress_percent,
                    (SELECT MAX(p.updated_at)
@@ -48,6 +50,8 @@ public class AdminDashboardService {
               LEFT JOIN (
                   SELECT v.user_id,
                          COUNT(*) FILTER (WHERE v.status = 'COMPLETED') AS modules_completed,
+                         SUM(v.module_score) FILTER (WHERE v.status IN ('COMPLETED', 'FAILED')) AS total_score,
+                         COUNT(*) FILTER (WHERE v.status IN ('COMPLETED', 'FAILED')) AS graded_modules,
                          ROUND(AVG(v.module_score) FILTER (WHERE v.status IN ('COMPLETED', 'FAILED')), 2) AS average_score,
                          SUM(v.progress_percent) AS progress_sum
                     FROM v_student_module_summary v
@@ -182,6 +186,8 @@ public class AdminDashboardService {
                 UserStatus.valueOf(rs.getString("status")),
                 rs.getInt("modules_completed"),
                 rs.getInt("modules_total"),
+                rs.getBigDecimal("total_score"),
+                rs.getInt("graded_modules"),
                 rs.getBigDecimal("average_score"),
                 rs.getBigDecimal("progress_percent"),
                 rs.getObject("last_activity_at", OffsetDateTime.class),
