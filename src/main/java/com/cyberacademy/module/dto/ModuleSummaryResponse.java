@@ -14,6 +14,7 @@ public record ModuleSummaryResponse(
         UUID moduleId,
         String code,
         String title,
+        String description,
         int orderIndex,
         ProgressStatus status,
         BigDecimal score,

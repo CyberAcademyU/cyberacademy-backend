@@ -366,6 +366,7 @@ public class ModuleService {
                 module.getId(),
                 module.getCode(),
                 module.getTitle(),
+                module.getDescription(),
                 module.getOrderIndex(),
                 status,
                 score,
