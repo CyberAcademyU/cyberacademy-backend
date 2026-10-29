@@ -1,5 +1,6 @@
 package com.cyberacademy.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,9 +9,11 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import com.cyberacademy.auth.repository.RevokedTokenRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -24,11 +27,17 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtService jwtService;
+    private final RevokedTokenRepository revokedTokenRepository;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final List<String> allowedOrigins;
 
     public SecurityConfig(JwtService jwtService,
+                          RevokedTokenRepository revokedTokenRepository,
+                          JwtAuthenticationFilter jwtAuthenticationFilter,
                           @Value("${security.cors.allowed-origins:http://localhost:4200}") String allowedOrigins) {
         this.jwtService = jwtService;
+        this.revokedTokenRepository = revokedTokenRepository;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         // Se admiten varios orígenes separados por comas en la propiedad del application.yml
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
@@ -43,6 +52,8 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // El dispatch asíncrono solo reanuda una petición ya autenticada.
+                .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 // Rutas públicas de autenticación
                 .requestMatchers("/auth/**").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
@@ -52,7 +63,8 @@ public class SecurityConfig {
                 // Cualquier otra requiere autenticación
                 .anyRequest().authenticated()
             )
-            .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new SecurityHeadersFilter(), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .exceptionHandling(exception -> exception
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
             );

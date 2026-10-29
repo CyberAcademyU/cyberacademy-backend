@@ -31,8 +31,10 @@ public class JwtService {
     public String generateToken(UUID userId, String email, String role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + (expirationMinutes * 60 * 1000));
+        String jti = java.util.UUID.randomUUID().toString();
 
         return Jwts.builder()
+                .id(jti) // Identificador único del token (usado para revocación)
                 .subject(userId.toString())
                 .issuer(issuer)
                 .claim("email", email)
@@ -41,6 +43,13 @@ public class JwtService {
                 .expiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
+    }
+
+    /**
+     * Extrae el identificador único (jti) de un token JWT.
+     */
+    public String getJtiFromToken(String token) {
+        return getClaimsFromToken(token).getId();
     }
 
     public long getExpirationSeconds() {
