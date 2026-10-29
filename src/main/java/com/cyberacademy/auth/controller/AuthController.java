@@ -2,6 +2,7 @@ package com.cyberacademy.auth.controller;
 
 import com.cyberacademy.auth.dto.*;
 import com.cyberacademy.auth.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,5 +55,16 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
         }
         return ResponseEntity.ok(response);
+    }
+
+    /** Cierra la sesión revocando el JWT actual en el backend. */
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            authService.revokeToken(token);
+        }
+        return ResponseEntity.ok(ApiResponse.ok("Sesión cerrada correctamente", null));
     }
 }

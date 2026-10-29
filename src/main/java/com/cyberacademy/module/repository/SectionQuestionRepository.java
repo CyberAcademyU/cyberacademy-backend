@@ -2,6 +2,7 @@ package com.cyberacademy.module.repository;
 
 import com.cyberacademy.module.entity.SectionQuestion;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,6 +14,7 @@ import java.util.UUID;
 @Repository
 public interface SectionQuestionRepository extends JpaRepository<SectionQuestion, UUID> {
 
+    @EntityGraph(attributePaths = "options")
     List<SectionQuestion> findBySectionIdOrderByOrderIndexAsc(UUID sectionId);
 
     long countBySectionId(UUID sectionId);

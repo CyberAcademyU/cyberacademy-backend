@@ -13,6 +13,7 @@ import com.cyberacademy.module.repository.StudentModuleProgressRepository;
 import com.cyberacademy.module.repository.StudentSectionProgressRepository;
 import com.cyberacademy.security.CurrentUserProvider;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -176,6 +177,8 @@ public class QuizService {
     @Transactional
     public ModuleProgressResponse submitPractice(UUID moduleId, SubmitPracticeRequest request) {
         User student = currentUserProvider.requireCurrentUser();
+        // Serializa incluso el primer envío, antes de que exista el progreso.
+        entityManager.lock(student, LockModeType.PESSIMISTIC_WRITE);
         CourseModule module = findModule(moduleId);
 
         List<ModuleSection> sections = sortedSections(moduleId);

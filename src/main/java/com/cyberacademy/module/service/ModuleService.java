@@ -14,6 +14,7 @@ import com.cyberacademy.module.repository.StudentModuleProgressRepository;
 import com.cyberacademy.module.repository.StudentSectionProgressRepository;
 import com.cyberacademy.security.CurrentUserProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -39,6 +40,7 @@ public class ModuleService {
     private final SectionQuestionRepository questionRepository;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final ApplicationEventPublisher events;
 
     public ModuleService(CourseModuleRepository moduleRepository,
                          ModuleSectionRepository sectionRepository,
@@ -46,7 +48,8 @@ public class ModuleService {
                          StudentSectionProgressRepository sectionProgressRepository,
                          SectionQuestionRepository questionRepository,
                          UserRepository userRepository,
-                         CurrentUserProvider currentUserProvider) {
+                         CurrentUserProvider currentUserProvider,
+                         ApplicationEventPublisher events) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
         this.moduleProgressRepository = moduleProgressRepository;
@@ -54,6 +57,7 @@ public class ModuleService {
         this.questionRepository = questionRepository;
         this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
+        this.events = events;
     }
 
     // =========================================================================
@@ -105,6 +109,7 @@ public class ModuleService {
 
         // El trigger trg_modules_default_sections crea las 3 teorías + 1 práctica
         moduleRepository.saveAndFlush(module);
+        if (module.isActive()) events.publishEvent(new ModuleCreatedEvent(module.getId(), module.getTitle()));
 
         return toModuleResponse(module, sortedSections(module.getId()));
     }

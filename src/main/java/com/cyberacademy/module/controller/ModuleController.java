@@ -3,6 +3,10 @@ package com.cyberacademy.module.controller;
 import com.cyberacademy.auth.dto.ApiResponse;
 import com.cyberacademy.module.dto.*;
 import com.cyberacademy.module.service.ModuleService;
+import com.cyberacademy.module.service.ModuleStreamService;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +21,20 @@ import java.util.UUID;
 public class ModuleController {
 
     private final ModuleService moduleService;
+    private final ModuleStreamService streamService;
 
-    public ModuleController(ModuleService moduleService) {
+    public ModuleController(ModuleService moduleService, ModuleStreamService streamService) {
         this.moduleService = moduleService;
+        this.streamService = streamService;
+    }
+
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<SseEmitter> stream(Authentication authentication) {
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-store")
+                .header("X-Accel-Buffering", "no")
+                .body(streamService.connect((String) authentication.getCredentials()));
     }
 
     /** Catálogo de módulos (por defecto solo los activos). */
