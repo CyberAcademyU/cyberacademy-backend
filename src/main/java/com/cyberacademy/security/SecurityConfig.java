@@ -4,12 +4,13 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import com.cyberacademy.auth.repository.RevokedTokenRepository;
+import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -56,6 +57,8 @@ public class SecurityConfig {
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 // Rutas públicas de autenticación
                 .requestMatchers("/auth/**").permitAll()
+                // Catálogo público (página "Explorar"): solo GET
+                .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
                 // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)

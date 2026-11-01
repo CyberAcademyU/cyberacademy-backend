@@ -1,0 +1,584 @@
+package com.cyberacademy.domains.module.service;
+
+import com.cyberacademy.domains.auth.model.User;
+import com.cyberacademy.exception.BadRequestException;
+import com.cyberacademy.exception.ConflictException;
+import com.cyberacademy.exception.ResourceNotFoundException;
+import com.cyberacademy.domains.module.dto.*;
+import com.cyberacademy.domains.module.model.*;
+import com.cyberacademy.domains.module.repository.CourseModuleRepository;
+import com.cyberacademy.domains.module.repository.ModuleSectionRepository;
+import com.cyberacademy.domains.module.repository.PracticeAnswerRepository;
+import com.cyberacademy.domains.module.repository.SectionQuestionRepository;
+import com.cyberacademy.domains.module.repository.StudentModuleProgressRepository;
+import com.cyberacademy.domains.module.repository.StudentSectionProgressRepository;
+import com.cyberacademy.security.CurrentUserProvider;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.OffsetDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Flujo de aprendizaje guiado:
+ * teorías con pregunta de comprensión (se desbloquean en orden) y una práctica
+ * tipo cuestionario de un solo intento cuya nota es la del módulo.
+ */
+@Service
+public class QuizService {
+
+    private static final BigDecimal HUNDRED = new BigDecimal("100.00");
+    private static final int MAX_PRACTICE_QUESTIONS = 50;
+
+    /** Orden de presentación: teoría 1..3 y después la práctica. */
+    private static final Comparator<ModuleSection> SECTION_ORDER = Comparator
+            .comparingInt((ModuleSection s) -> s.getSectionType() == SectionType.THEORY ? 0 : 1)
+            .thenComparingInt(ModuleSection::getSectionOrder);
+
+    private final CourseModuleRepository moduleRepository;
+    private final ModuleSectionRepository sectionRepository;
+    private final StudentModuleProgressRepository moduleProgressRepository;
+    private final StudentSectionProgressRepository sectionProgressRepository;
+    private final SectionQuestionRepository questionRepository;
+    private final PracticeAnswerRepository practiceAnswerRepository;
+    private final CurrentUserProvider currentUserProvider;
+    private final ModuleService moduleService;
+    private final EntityManager entityManager;
+
+    public QuizService(CourseModuleRepository moduleRepository,
+                       ModuleSectionRepository sectionRepository,
+                       StudentModuleProgressRepository moduleProgressRepository,
+                       StudentSectionProgressRepository sectionProgressRepository,
+                       SectionQuestionRepository questionRepository,
+                       PracticeAnswerRepository practiceAnswerRepository,
+                       CurrentUserProvider currentUserProvider,
+                       ModuleService moduleService,
+                       EntityManager entityManager) {
+        this.moduleRepository = moduleRepository;
+        this.sectionRepository = sectionRepository;
+        this.moduleProgressRepository = moduleProgressRepository;
+        this.sectionProgressRepository = sectionProgressRepository;
+        this.questionRepository = questionRepository;
+        this.practiceAnswerRepository = practiceAnswerRepository;
+        this.currentUserProvider = currentUserProvider;
+        this.moduleService = moduleService;
+        this.entityManager = entityManager;
+    }
+
+    // =========================================================================
+    // Estudiante
+    // =========================================================================
+
+    /** Devuelve la sesión desbloqueada con su contenido y sus preguntas (sin respuestas). */
+    @Transactional(readOnly = true)
+    public SectionContentResponse getStudentSection(UUID moduleId, UUID sectionId) {
+        User student = currentUserProvider.requireCurrentUser();
+        CourseModule module = findModule(moduleId);
+
+        List<ModuleSection> sections = sortedSections(moduleId);
+        ModuleSection section = findSection(sections, sectionId);
+
+        StudentModuleProgress progress = moduleProgressRepository
+                .findByUserIdAndModuleId(student.getId(), moduleId)
+                .orElse(null);
+        List<StudentSectionProgress> items = progress == null
+                ? List.of()
+                : sectionProgressRepository.findByModuleProgressId(progress.getId());
+
+        Access access = evaluate(sections, items, section, module.getPassingScore());
+        if (!access.accessible()) {
+            throw new ConflictException(access.reason());
+        }
+
+        List<SectionQuestion> questions =
+                questionRepository.findBySectionIdOrderByOrderIndexAsc(sectionId);
+
+        return new SectionContentResponse(
+                section.getId(),
+                section.getSectionType(),
+                section.getSectionOrder(),
+                section.getTitle(),
+                section.getContent(),
+                access.status(),
+                true,
+                toStudentQuestions(questions));
+    }
+
+    /** Comprueba la pregunta de comprensión de una teoría y la completa si es correcta. */
+    @Transactional
+    public CheckAnswerResponse checkTheoryAnswer(UUID moduleId, UUID sectionId, CheckAnswerRequest request) {
+        User student = currentUserProvider.requireCurrentUser();
+        CourseModule module = findModule(moduleId);
+
+        List<ModuleSection> sections = sortedSections(moduleId);
+        ModuleSection section = findSection(sections, sectionId);
+
+        if (section.getSectionType() != SectionType.THEORY) {
+            throw new BadRequestException("Solo las sesiones de teoría tienen pregunta de comprensión");
+        }
+
+        StudentModuleProgress progress = getOrCreateProgress(student, module);
+        List<StudentSectionProgress> items =
+                sectionProgressRepository.findByModuleProgressId(progress.getId());
+
+        Access access = evaluate(sections, items, section, module.getPassingScore());
+        if (!access.accessible()) {
+            throw new ConflictException(access.reason());
+        }
+
+        SectionQuestion question = questionRepository.findById(request.getQuestionId())
+                .filter(q -> q.getSection().getId().equals(sectionId))
+                .orElseThrow(() -> new BadRequestException("La pregunta no pertenece a esta sesión"));
+
+        QuestionOption option = question.getOptions().stream()
+                .filter(o -> o.getId().equals(request.getOptionId()))
+                .findFirst()
+                .orElseThrow(() -> new BadRequestException("La opción no pertenece a esta pregunta"));
+
+        StudentSectionProgress item = items.stream()
+                .filter(sp -> sp.getSection().getId().equals(sectionId))
+                .findFirst()
+                .orElseGet(() -> {
+                    StudentSectionProgress created = new StudentSectionProgress();
+                    created.setModuleProgress(progress);
+                    created.setSection(section);
+                    return created;
+                });
+
+        item.setAttempts(item.getAttempts() + 1);
+
+        if (!option.isCorrect()) {
+            if (item.getStatus() != ProgressStatus.COMPLETED) {
+                item.setStatus(ProgressStatus.IN_PROGRESS);
+            }
+            sectionProgressRepository.saveAndFlush(item);
+            // Solo se explica la opción elegida: la explicación completa revelaría la respuesta
+            return new CheckAnswerResponse(
+                    false,
+                    false,
+                    "Respuesta incorrecta. Revisa el contenido e inténtalo de nuevo.",
+                    option.getFeedback(),
+                    null);
+        }
+
+        item.setStatus(ProgressStatus.COMPLETED);
+        item.setCompletedAt(OffsetDateTime.now());
+        item.setScore(null); // las teorías no llevan nota
+        sectionProgressRepository.saveAndFlush(item);
+
+        // El trigger de la BD ya recalculó el módulo; refrescamos para leer el estado real.
+        entityManager.refresh(progress);
+
+        return new CheckAnswerResponse(
+                true,
+                true,
+                "¡Respuesta correcta! Se desbloqueó la siguiente sesión.",
+                option.getFeedback(),
+                question.getExplanation());
+    }
+
+    /** Corrige la práctica. Solo se permite un intento. */
+    @Transactional
+    public ModuleProgressResponse submitPractice(UUID moduleId, SubmitPracticeRequest request) {
+        User student = currentUserProvider.requireCurrentUser();
+        // Serializa incluso el primer envío, antes de que exista el progreso.
+        entityManager.lock(student, LockModeType.PESSIMISTIC_WRITE);
+        CourseModule module = findModule(moduleId);
+
+        List<ModuleSection> sections = sortedSections(moduleId);
+        ModuleSection practice = sections.stream()
+                .filter(s -> s.getSectionType() == SectionType.PRACTICE)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("El módulo no tiene sesión de práctica"));
+
+        StudentModuleProgress progress = getOrCreateProgress(student, module);
+        List<StudentSectionProgress> items =
+                sectionProgressRepository.findByModuleProgressId(progress.getId());
+        Map<UUID, StudentSectionProgress> bySection = items.stream()
+                .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
+
+        boolean theoriesCompleted = sections.stream()
+                .filter(s -> s.getSectionType() == SectionType.THEORY)
+                .allMatch(s -> {
+                    StudentSectionProgress item = bySection.get(s.getId());
+                    return item != null && item.getStatus() == ProgressStatus.COMPLETED;
+                });
+        if (!theoriesCompleted) {
+            throw new ConflictException(
+                    "Debes completar las 3 sesiones de teoría antes de enviar la práctica");
+        }
+
+        StudentSectionProgress practiceItem = bySection.get(practice.getId());
+        // Suspendida se puede reintentar hasta el máximo de intentos; aprobada queda cerrada.
+        if (ModuleService.isPassed(practiceItem, module.getPassingScore())) {
+            throw new ConflictException("Ya aprobaste esta práctica");
+        }
+        if (ModuleService.isClosed(practiceItem, module.getPassingScore())) {
+            throw new ConflictException("Usaste los " + ModuleService.MAX_PRACTICE_ATTEMPTS
+                    + " intentos de esta práctica. Pide al administrador que los reanude");
+        }
+
+        List<SectionQuestion> questions =
+                questionRepository.findBySectionIdOrderByOrderIndexAsc(practice.getId());
+        if (questions.isEmpty()) {
+            throw new BadRequestException("La práctica todavía no tiene preguntas configuradas");
+        }
+
+        Map<UUID, UUID> answers = request.getAnswers().stream()
+                .collect(Collectors.toMap(
+                        PracticeAnswerRequest::getQuestionId,
+                        PracticeAnswerRequest::getOptionId,
+                        (a, b) -> a));
+
+        if (answers.size() != questions.size()) {
+            throw new BadRequestException("Debes responder todas las preguntas de la práctica");
+        }
+
+        int correctCount = 0;
+        Map<UUID, UUID> chosen = new LinkedHashMap<>();
+        for (SectionQuestion question : questions) {
+            UUID optionId = answers.get(question.getId());
+            if (optionId == null) {
+                throw new BadRequestException("Debes responder todas las preguntas de la práctica");
+            }
+            QuestionOption option = question.getOptions().stream()
+                    .filter(o -> o.getId().equals(optionId))
+                    .findFirst()
+                    .orElseThrow(() -> new BadRequestException(
+                            "Una de las opciones enviadas no pertenece a su pregunta"));
+            if (option.isCorrect()) {
+                correctCount++;
+            }
+            chosen.put(question.getId(), option.getId());
+        }
+
+        BigDecimal score = BigDecimal.valueOf(correctCount)
+                .multiply(HUNDRED)
+                .divide(BigDecimal.valueOf(questions.size()), 2, RoundingMode.HALF_UP);
+
+        StudentSectionProgress item = practiceItem != null ? practiceItem : new StudentSectionProgress();
+        item.setModuleProgress(progress);
+        item.setSection(practice);
+        item.setStatus(ProgressStatus.COMPLETED);
+        item.setScore(score);
+        item.setAttempts(item.getAttempts() + 1);
+        item.setCompletedAt(OffsetDateTime.now());
+        StudentSectionProgress saved = sectionProgressRepository.saveAndFlush(item);
+
+        // Las respuestas del intento anterior se sustituyen por las nuevas. El flush separa el
+        // borrado de la inserción (Hibernate inserta antes de borrar y chocaría la clave).
+        practiceAnswerRepository.deleteBySectionProgressId(saved.getId());
+        practiceAnswerRepository.flush();
+
+        // Se guardan las respuestas para poder mostrar la corrección después
+        practiceAnswerRepository.saveAll(chosen.entrySet().stream()
+                .map(entry -> new PracticeAnswer(saved.getId(), entry.getKey(), entry.getValue()))
+                .toList());
+
+        // La nota del módulo la calcula la BD: al ser la práctica la única sección
+        // con nota, la fórmula ponderada devuelve exactamente esta puntuación.
+        entityManager.refresh(progress);
+
+        return moduleService.getMyProgress(moduleId);
+    }
+
+    /**
+     * Corrección del último intento de la práctica. Cerrada (aprobada o sin intentos): cada
+     * pregunta con la opción elegida, la correcta, su retroalimentación y la explicación.
+     * Suspendida con intentos restantes: solo qué preguntas fallaron y la retroalimentación de la
+     * opción elegida, porque dar la respuesta correcta convertiría el reintento en copiar.
+     * Antes de enviarla no existe.
+     */
+    @Transactional(readOnly = true)
+    public PracticeReviewResponse getPracticeReview(UUID moduleId) {
+        User student = currentUserProvider.requireCurrentUser();
+        CourseModule module = findModule(moduleId);
+
+        ModuleSection practice = sortedSections(moduleId).stream()
+                .filter(s -> s.getSectionType() == SectionType.PRACTICE)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("El módulo no tiene sesión de práctica"));
+
+        StudentSectionProgress item = moduleProgressRepository
+                .findByUserIdAndModuleId(student.getId(), moduleId)
+                .flatMap(progress -> sectionProgressRepository.findByModuleProgressId(progress.getId()).stream()
+                        .filter(sp -> sp.getSection().getId().equals(practice.getId()))
+                        .findFirst())
+                .filter(sp -> sp.getStatus() == ProgressStatus.COMPLETED)
+                .orElseThrow(() -> new ConflictException("La corrección estará disponible cuando envíes la práctica"));
+
+        boolean passed = ModuleService.isPassed(item, module.getPassingScore());
+        boolean reveal = ModuleService.isClosed(item, module.getPassingScore());
+        Map<UUID, UUID> chosen = practiceAnswerRepository.findBySectionProgressId(item.getId()).stream()
+                .collect(Collectors.toMap(PracticeAnswer::getQuestionId, PracticeAnswer::getOptionId));
+
+        List<PracticeReviewResponse.QuestionReview> reviews = new ArrayList<>();
+        int correctCount = 0;
+        for (SectionQuestion question : questionRepository.findBySectionIdOrderByOrderIndexAsc(practice.getId())) {
+            UUID chosenId = chosen.get(question.getId());
+            List<QuestionOption> options = question.getOptions().stream()
+                    .sorted(Comparator.comparingInt(QuestionOption::getOrderIndex))
+                    .toList();
+            QuestionOption chosenOption = options.stream()
+                    .filter(o -> o.getId().equals(chosenId))
+                    .findFirst()
+                    .orElse(null);
+            boolean correct = chosenOption != null && chosenOption.isCorrect();
+            if (correct) correctCount++;
+
+            reviews.add(new PracticeReviewResponse.QuestionReview(
+                    question.getId(),
+                    question.getOrderIndex(),
+                    question.getPrompt(),
+                    correct,
+                    chosenOption == null ? null : chosenOption.getFeedback(),
+                    reveal ? question.getExplanation() : null,
+                    options.stream()
+                            .map(o -> new PracticeReviewResponse.OptionReview(
+                                    o.getId(), o.getOrderIndex(), o.getText(),
+                                    reveal ? o.isCorrect() : null,
+                                    o.getId().equals(chosenId)))
+                            .toList()));
+        }
+
+        BigDecimal score = item.getScore() == null ? BigDecimal.ZERO : item.getScore();
+        return new PracticeReviewResponse(
+                score,
+                module.getPassingScore(),
+                passed,
+                correctCount,
+                reviews.size(),
+                reviews);
+    }
+
+    // =========================================================================
+    // Administrador
+    // =========================================================================
+
+    /** Contenido y preguntas de las 4 secciones, con las respuestas correctas. */
+    @Transactional(readOnly = true)
+    public List<AdminSectionContentResponse> getModuleContent(UUID moduleId) {
+        findModule(moduleId);
+
+        return sortedSections(moduleId).stream()
+                .map(section -> toAdminResponse(
+                        section,
+                        questionRepository.findBySectionIdOrderByOrderIndexAsc(section.getId())))
+                .toList();
+    }
+
+    /** Reemplaza el contenido y las preguntas de una sesión. */
+    @Transactional
+    public AdminSectionContentResponse saveSectionContent(UUID moduleId,
+                                                          UUID sectionId,
+                                                          SaveSectionContentRequest request) {
+        findModule(moduleId);
+
+        ModuleSection section = sectionRepository.findByIdAndModuleId(sectionId, moduleId)
+                .orElseThrow(() -> new ResourceNotFoundException("La sección no pertenece a este módulo"));
+
+        String title = request.getTitle() == null ? "" : request.getTitle().trim();
+        if (title.isEmpty()) {
+            throw new BadRequestException("El título de la sesión es obligatorio");
+        }
+
+        String content = request.getContent() == null ? "" : request.getContent().trim();
+        if (content.isEmpty()) {
+            throw new BadRequestException("El contenido de la sesión es obligatorio");
+        }
+
+        List<SaveSectionContentRequest.QuestionInput> questions = request.getQuestions();
+        if (questions == null) {
+            throw new BadRequestException("Debes enviar las preguntas de la sesión");
+        }
+
+        if (section.getSectionType() == SectionType.THEORY && questions.size() != 1) {
+            throw new BadRequestException(
+                    "Cada teoría debe tener exactamente una pregunta de comprensión");
+        }
+        if (section.getSectionType() == SectionType.PRACTICE
+                && (questions.isEmpty() || questions.size() > MAX_PRACTICE_QUESTIONS)) {
+            throw new BadRequestException(
+                    "La práctica debe tener entre 1 y " + MAX_PRACTICE_QUESTIONS + " preguntas");
+        }
+
+        for (SaveSectionContentRequest.QuestionInput question : questions) {
+            if (question.getOptions() == null) {
+                throw new BadRequestException("Cada pregunta debe tener opciones");
+            }
+            long correctOptions = question.getOptions().stream()
+                    .filter(SaveSectionContentRequest.OptionInput::isCorrect)
+                    .count();
+            if (correctOptions != 1) {
+                throw new BadRequestException(
+                        "Cada pregunta debe tener exactamente una opción correcta");
+            }
+        }
+
+        section.setTitle(title);
+        section.setContent(content);
+        section.setUpdatedAt(OffsetDateTime.now());
+        sectionRepository.save(section);
+
+        // Reemplazo completo: primero se borran las preguntas anteriores y sus opciones.
+        questionRepository.deleteBySectionId(sectionId);
+        // Hibernate ejecuta los INSERT antes que los DELETE al hacer flush: se fuerza aquí
+        // para que las preguntas nuevas no choquen con el orden único de las anteriores.
+        questionRepository.flush();
+
+        int questionOrder = 1;
+        for (SaveSectionContentRequest.QuestionInput input : questions) {
+            SectionQuestion question = new SectionQuestion();
+            question.setSection(section);
+            question.setOrderIndex(questionOrder++);
+            question.setPrompt(input.getPrompt().trim());
+            question.setExplanation(blankToNull(input.getExplanation()));
+
+            int optionOrder = 1;
+            for (SaveSectionContentRequest.OptionInput optionInput : input.getOptions()) {
+                QuestionOption option = new QuestionOption();
+                option.setQuestion(question);
+                option.setOrderIndex(optionOrder++);
+                option.setText(optionInput.getText().trim());
+                option.setCorrect(optionInput.isCorrect());
+                option.setFeedback(blankToNull(optionInput.getFeedback()));
+                question.getOptions().add(option);
+            }
+
+            questionRepository.save(question);
+        }
+
+        questionRepository.flush();
+
+        return toAdminResponse(
+                section,
+                questionRepository.findBySectionIdOrderByOrderIndexAsc(sectionId));
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    private record Access(boolean accessible, ProgressStatus status, String reason) {}
+
+    private Access evaluate(List<ModuleSection> ordered,
+                            List<StudentSectionProgress> items,
+                            ModuleSection target,
+                            BigDecimal passingScore) {
+        Map<UUID, StudentSectionProgress> bySection = items.stream()
+                .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
+
+        boolean moduleFinished = ordered.stream()
+                .filter(s -> s.getSectionType() == SectionType.PRACTICE)
+                .map(s -> bySection.get(s.getId()))
+                .anyMatch(sp -> ModuleService.isClosed(sp, passingScore));
+
+        boolean allPreviousCompleted = true;
+        for (ModuleSection section : ordered) {
+            StudentSectionProgress item = bySection.get(section.getId());
+            ProgressStatus status = item == null ? ProgressStatus.NOT_STARTED : item.getStatus();
+
+            if (section.getId().equals(target.getId())) {
+                if (moduleFinished) {
+                    return new Access(false, status,
+                            "El módulo ya está finalizado y sus sesiones están bloqueadas");
+                }
+                // La práctica suspendida se puede volver a abrir para reintentarla
+                if (status == ProgressStatus.COMPLETED && section.getSectionType() != SectionType.PRACTICE) {
+                    return new Access(false, status,
+                            "Esta sesión ya está completada y bloqueada");
+                }
+                if (!allPreviousCompleted) {
+                    return new Access(false, status,
+                            "Debes completar las sesiones anteriores antes de abrir esta");
+                }
+                return new Access(true, status, null);
+            }
+
+            allPreviousCompleted = allPreviousCompleted && status == ProgressStatus.COMPLETED;
+        }
+
+        return new Access(false, ProgressStatus.NOT_STARTED, "La sesión no pertenece a este módulo");
+    }
+
+    private StudentModuleProgress getOrCreateProgress(User student, CourseModule module) {
+        return moduleProgressRepository.findByUserIdAndModuleId(student.getId(), module.getId())
+                .orElseGet(() -> {
+                    StudentModuleProgress created = new StudentModuleProgress();
+                    created.setUser(student);
+                    created.setModule(module);
+                    return moduleProgressRepository.saveAndFlush(created);
+                });
+    }
+
+    private List<QuizQuestionResponse> toStudentQuestions(List<SectionQuestion> questions) {
+        return questions.stream()
+                .map(question -> new QuizQuestionResponse(
+                        question.getId(),
+                        question.getOrderIndex(),
+                        question.getPrompt(),
+                        question.getOptions().stream()
+                                .sorted(Comparator.comparingInt(QuestionOption::getOrderIndex))
+                                .map(option -> new QuizOptionResponse(
+                                        option.getId(),
+                                        option.getOrderIndex(),
+                                        option.getText()))
+                                .toList()))
+                .toList();
+    }
+
+    private AdminSectionContentResponse toAdminResponse(ModuleSection section,
+                                                        List<SectionQuestion> questions) {
+        List<AdminQuestionResponse> mapped = questions.stream()
+                .map(question -> new AdminQuestionResponse(
+                        question.getId(),
+                        question.getOrderIndex(),
+                        question.getPrompt(),
+                        question.getExplanation(),
+                        question.getOptions().stream()
+                                .sorted(Comparator.comparingInt(QuestionOption::getOrderIndex))
+                                .map(option -> new AdminOptionResponse(
+                                        option.getId(),
+                                        option.getOrderIndex(),
+                                        option.getText(),
+                                        option.isCorrect(),
+                                        option.getFeedback()))
+                                .toList()))
+                .toList();
+
+        return new AdminSectionContentResponse(
+                section.getId(),
+                section.getSectionType(),
+                section.getSectionOrder(),
+                section.getTitle(),
+                section.getContent(),
+                mapped);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private CourseModule findModule(UUID moduleId) {
+        return moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Módulo no encontrado"));
+    }
+
+    private ModuleSection findSection(List<ModuleSection> sections, UUID sectionId) {
+        return sections.stream()
+                .filter(section -> section.getId().equals(sectionId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("La sección no pertenece a este módulo"));
+    }
+
+    private List<ModuleSection> sortedSections(UUID moduleId) {
+        return sectionRepository.findByModuleId(moduleId).stream()
+                .sorted(SECTION_ORDER)
+                .toList();
+    }
+}
