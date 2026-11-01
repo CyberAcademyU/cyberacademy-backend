@@ -1,8 +1,8 @@
 package com.cyberacademy.security;
 
-import com.cyberacademy.auth.entity.User;
-import com.cyberacademy.auth.repository.UserRepository;
-import com.cyberacademy.common.exception.ResourceNotFoundException;
+import com.cyberacademy.domains.auth.model.User;
+import com.cyberacademy.domains.auth.repository.UserRepository;
+import com.cyberacademy.exception.ResourceNotFoundException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;

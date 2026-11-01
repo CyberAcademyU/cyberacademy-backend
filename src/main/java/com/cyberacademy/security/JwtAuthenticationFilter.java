@@ -1,8 +1,8 @@
 package com.cyberacademy.security;
 
-import com.cyberacademy.auth.repository.RevokedTokenRepository;
-import com.cyberacademy.auth.repository.UserRepository;
-import com.cyberacademy.auth.entity.UserStatus;
+import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
+import com.cyberacademy.domains.auth.repository.UserRepository;
+import com.cyberacademy.domains.auth.model.UserStatus;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -55,14 +55,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                 }
 
                 Claims claims = jwtService.getClaimsFromToken(token);
-                com.cyberacademy.auth.entity.User currentUser;
+                com.cyberacademy.domains.auth.model.User currentUser;
                 try {
                     currentUser = userRepository.findById(UUID.fromString(claims.getSubject())).orElse(null);
                 } catch (IllegalArgumentException | NullPointerException ex) {
                     currentUser = null;
                 }
                 if (currentUser == null || currentUser.getStatus() != UserStatus.ACTIVE
-                        || !currentUser.isEmailVerified()) {
+                        || !currentUser.isEmailVerified()
+                        || issuedBeforePasswordChange(claims, currentUser)) {
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
                     return;
                 }
@@ -84,6 +85,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    /** Un cambio de contraseña invalida todas las sesiones abiertas antes de él (iat tiene precisión de segundos). */
+    private boolean issuedBeforePasswordChange(Claims claims, com.cyberacademy.domains.auth.model.User user) {
+        if (user.getPasswordChangedAt() == null) return false;
+        if (claims.getIssuedAt() == null) return true;
+        return claims.getIssuedAt().toInstant().getEpochSecond()
+                < user.getPasswordChangedAt().toInstant().getEpochSecond();
     }
 
     @Override
