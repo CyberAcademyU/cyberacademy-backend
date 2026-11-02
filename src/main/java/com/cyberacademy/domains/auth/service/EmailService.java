@@ -26,6 +26,22 @@ public class EmailService {
         this.from = from;
     }
 
+    public void sendPasswordResetCode(String to, String code) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("CyberAcademy - Recuperación de contraseña");
+            helper.setText(buildCodeEmail(null, code,
+                    "Usa este código para recuperar tu contraseña:",
+                    "Si no solicitaste recuperar tu contraseña, puedes ignorar este mensaje."), true);
+            mailSender.send(message);
+        } catch (MailException | MessagingException e) {
+            throw new EmailDeliveryException("No se pudo enviar el correo de recuperación.", e);
+        }
+    }
+
     /**
      * Envía el código de verificación al correo del estudiante.
      * Lanza EmailDeliveryException si el SMTP falla, para que la transacción haga rollback.
@@ -58,6 +74,12 @@ public class EmailService {
     }
 
     private String buildVerificationEmail(String firstName, String code) {
+        return buildCodeEmail(firstName, code,
+                "Gracias por registrarte. Usa este código para verificar tu correo electrónico:",
+                "Si no creaste esta cuenta, puedes ignorar este mensaje.");
+    }
+
+    private String buildCodeEmail(String firstName, String code, String instruction, String disclaimer) {
         String name = (firstName == null || firstName.isBlank()) ? "estudiante" : firstName;
         return """
                 <!DOCTYPE html>
@@ -76,7 +98,7 @@ public class EmailService {
                               <td style="padding:32px 32px 8px 32px;color:#1e293b;">
                                 <p style="margin:0 0 12px 0;font-size:16px;">Hola <strong>{{NAME}}</strong>,</p>
                                 <p style="margin:0 0 24px 0;font-size:15px;line-height:22px;color:#475569;">
-                                  Gracias por registrarte. Usa este código para verificar tu correo electrónico:
+                                  {{INSTRUCTION}}
                                 </p>
                                 <div style="text-align:center;margin:0 0 24px 0;">
                                   <span style="display:inline-block;padding:16px 28px;background-color:#0f172a;color:#22d3ee;font-size:32px;letter-spacing:8px;border-radius:8px;font-weight:bold;">{{CODE}}</span>
@@ -85,7 +107,7 @@ public class EmailService {
                                   El código expira en <strong>15 minutos</strong>.
                                 </p>
                                 <p style="margin:0 0 24px 0;font-size:14px;color:#475569;">
-                                  Si no creaste esta cuenta, puedes ignorar este mensaje.
+                                  {{DISCLAIMER}}
                                 </p>
                               </td>
                             </tr>
@@ -104,6 +126,8 @@ public class EmailService {
                 </html>
                 """
                 .replace("{{NAME}}", name)
+                .replace("{{INSTRUCTION}}", instruction)
+                .replace("{{DISCLAIMER}}", disclaimer)
                 .replace("{{CODE}}", code);
     }
 }
