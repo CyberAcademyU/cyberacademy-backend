@@ -62,6 +62,42 @@ Ese archivo está en `.gitignore`. En producción, usa variables de entorno:
 | `CORS_ALLOWED_ORIGINS` | orígenes permitidos, separados por comas |
 | `SPRING_PROFILES_ACTIVE` | `prod` en producción |
 
+### Secretos y archivos locales
+
+- No subas contraseñas, claves, tokens JWT ni archivos `.env` al repositorio. `.env` y sus variantes (como `.env.local` y `.env.production`) están ignorados por Git; también lo está `application-local.yml`.
+- Se permite `.env.example` únicamente como plantilla, con nombres de variables y valores de ejemplo sin credenciales reales.
+- Antes de cada commit, revisa `git status` y `git diff --cached`. No uses `git add -f` con archivos secretos. Si un secreto ya se subió, ignorarlo después no lo elimina del historial: avisa al equipo y revócalo o rótalo.
+
+## Flujo de trabajo con Git
+
+Aplica estos pasos por separado en el repositorio donde trabajes:
+
+- `master`: versión estable; se actualiza mediante Pull Request desde `develop`.
+- `develop`: integración y pruebas; recibe Pull Requests desde ramas de tareas.
+- `feature/descripcion` y `fix/descripcion`: ramas temporales para funcionalidades y correcciones. Cada persona crea una por tarea a partir de `develop`.
+
+Actualiza `develop` y crea tu rama (usa un nombre descriptivo y diferente para cada tarea):
+
+```bash
+git fetch origin
+git switch develop
+git pull --ff-only origin develop
+git switch -c feature/nombre-de-la-tarea
+# Para una corrección: git switch -c fix/nombre-del-error
+```
+
+Después de implementar y probar el cambio:
+
+```bash
+git status
+git add ruta/del/archivo
+git diff --cached
+git commit -m "feat: describir el cambio"
+git push -u origin feature/nombre-de-la-tarea
+```
+
+En GitHub abre un Pull Request con **base `develop`** y como origen tu rama. Espera a que pase CI y solicita revisión a un compañero antes de fusionar. Cuando el equipo haya probado `develop`, abre otro Pull Request con **base `master`** y origen `develop`. No subas directamente a las ramas protegidas. Las ramas `feature/*` y `fix/*` se crean cuando comienza cada tarea, no de antemano.
+
 ## Ejecutar
 
 ```bash

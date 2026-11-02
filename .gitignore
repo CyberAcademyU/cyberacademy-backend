@@ -6,7 +6,8 @@ target/
 src/main/resources/application-local.yml
 application-local.yml
 .env
-.env.local
+.env.*
+!.env.example
 
 # ===== Logs =====
 *.log
