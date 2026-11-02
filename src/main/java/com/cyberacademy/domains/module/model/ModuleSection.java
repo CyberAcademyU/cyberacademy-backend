@@ -42,6 +42,13 @@ public class ModuleSection {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(name = "image_url_1", length = 2048)
+    private String imageUrl1;
+    @Column(name = "image_url_2", length = 2048)
+    private String imageUrl2;
+    @Column(name = "video_url", length = 2048)
+    private String videoUrl;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
@@ -70,6 +77,13 @@ public class ModuleSection {
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+
+    public String getImageUrl1() { return imageUrl1; }
+    public void setImageUrl1(String value) { imageUrl1 = value; }
+    public String getImageUrl2() { return imageUrl2; }
+    public void setImageUrl2(String value) { imageUrl2 = value; }
+    public String getVideoUrl() { return videoUrl; }
+    public void setVideoUrl(String value) { videoUrl = value; }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

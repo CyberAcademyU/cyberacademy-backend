@@ -105,6 +105,9 @@ public class QuizService {
                 section.getSectionOrder(),
                 section.getTitle(),
                 section.getContent(),
+                section.getImageUrl1(),
+                section.getImageUrl2(),
+                section.getVideoUrl(),
                 access.status(),
                 true,
                 toStudentQuestions(questions));
@@ -425,6 +428,9 @@ public class QuizService {
 
         section.setTitle(title);
         section.setContent(content);
+        if (request.isImageUrl1Provided()) section.setImageUrl1(validateMediaUrl(request.getImageUrl1()));
+        if (request.isImageUrl2Provided()) section.setImageUrl2(validateMediaUrl(request.getImageUrl2()));
+        if (request.isVideoUrlProvided()) section.setVideoUrl(validateMediaUrl(request.getVideoUrl()));
         section.setUpdatedAt(OffsetDateTime.now());
         sectionRepository.save(section);
 
@@ -560,11 +566,28 @@ public class QuizService {
                 section.getSectionOrder(),
                 section.getTitle(),
                 section.getContent(),
+                section.getImageUrl1(),
+                section.getImageUrl2(),
+                section.getVideoUrl(),
                 mapped);
     }
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    static String validateMediaUrl(String value) {
+        String url = blankToNull(value);
+        if (url == null) return null;
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) {
+                throw new IllegalArgumentException();
+            }
+            return url;
+        } catch (java.net.URISyntaxException | IllegalArgumentException ex) {
+            throw new BadRequestException("Los enlaces de recursos deben ser URL HTTPS válidas.");
+        }
     }
 
     private CourseModule findModule(UUID moduleId) {

@@ -100,6 +100,8 @@ En GitHub abre un Pull Request con **base `develop`** y como origen tu rama. Esp
 
 ## Ejecutar
 
+Para habilitar imágenes y video en las teorías, aplica una sola vez `src/main/resources/db/migration/V9__theory_media.sql` en la base de datos del entorno correspondiente antes de arrancar esta versión. Flyway está desactivado en la configuración actual, por lo que no se ejecuta automáticamente. La migración agrega tres columnas opcionales; no incluye enlaces ni archivos multimedia.
+
 ```bash
 mvn spring-boot:run
 ```
