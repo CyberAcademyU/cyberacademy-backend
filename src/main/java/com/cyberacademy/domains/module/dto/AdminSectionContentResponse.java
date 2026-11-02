@@ -12,5 +12,8 @@ public record AdminSectionContentResponse(
         int order,
         String title,
         String content,
+        String imageUrl1,
+        String imageUrl2,
+        String videoUrl,
         List<AdminQuestionResponse> questions
 ) {}
