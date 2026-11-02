@@ -92,7 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
         if (user.getPasswordChangedAt() == null) return false;
         if (claims.getIssuedAt() == null) return true;
         return claims.getIssuedAt().toInstant().getEpochSecond()
-                < user.getPasswordChangedAt().toInstant().getEpochSecond();
+                <= user.getPasswordChangedAt().toInstant().getEpochSecond();
     }
 
     @Override
