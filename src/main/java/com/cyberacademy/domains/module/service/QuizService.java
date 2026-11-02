@@ -79,6 +79,7 @@ public class QuizService {
     public SectionContentResponse getStudentSection(UUID moduleId, UUID sectionId) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection section = findSection(sections, sectionId);
@@ -114,6 +115,7 @@ public class QuizService {
     public CheckAnswerResponse checkTheoryAnswer(UUID moduleId, UUID sectionId, CheckAnswerRequest request) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection section = findSection(sections, sectionId);
@@ -189,6 +191,7 @@ public class QuizService {
         // Serializa incluso el primer envío, antes de que exista el progreso.
         entityManager.lock(student, LockModeType.PESSIMISTIC_WRITE);
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection practice = sections.stream()
@@ -219,8 +222,7 @@ public class QuizService {
             throw new ConflictException("Ya aprobaste esta práctica");
         }
         if (ModuleService.isClosed(practiceItem, module.getPassingScore())) {
-            throw new ConflictException("Usaste los " + ModuleService.MAX_PRACTICE_ATTEMPTS
-                    + " intentos de esta práctica. Pide al administrador que los reanude");
+            throw new ConflictException("Ya enviaste esta práctica; solo se permite un intento.");
         }
 
         List<SectionQuestion> questions =
@@ -298,6 +300,7 @@ public class QuizService {
     public PracticeReviewResponse getPracticeReview(UUID moduleId) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         ModuleSection practice = sortedSections(moduleId).stream()
                 .filter(s -> s.getSectionType() == SectionType.PRACTICE)

@@ -14,7 +14,6 @@ import com.cyberacademy.domains.module.repository.SectionQuestionRepository;
 import com.cyberacademy.domains.module.repository.StudentModuleProgressRepository;
 import com.cyberacademy.domains.module.repository.StudentSectionProgressRepository;
 import com.cyberacademy.security.CurrentUserProvider;
-import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +28,7 @@ import java.util.stream.Collectors;
 public class ModuleService {
 
     /** Intentos de la práctica antes de que el módulo quede cerrado sin aprobar. */
-    public static final int MAX_PRACTICE_ATTEMPTS = 3;
+    public static final int MAX_PRACTICE_ATTEMPTS = 1;
 
     private static final BigDecimal TOTAL_WEIGHT = new BigDecimal("100.00");
 
@@ -47,7 +46,6 @@ public class ModuleService {
     private final SavedModuleRepository savedModuleRepository;
     private final CurrentUserProvider currentUserProvider;
     private final ApplicationEventPublisher events;
-    private final EntityManager entityManager;
 
     public ModuleService(CourseModuleRepository moduleRepository,
                          ModuleSectionRepository sectionRepository,
@@ -57,8 +55,7 @@ public class ModuleService {
                          UserRepository userRepository,
                          SavedModuleRepository savedModuleRepository,
                          CurrentUserProvider currentUserProvider,
-                         ApplicationEventPublisher events,
-                         EntityManager entityManager) {
+                         ApplicationEventPublisher events) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
         this.moduleProgressRepository = moduleProgressRepository;
@@ -68,7 +65,6 @@ public class ModuleService {
         this.savedModuleRepository = savedModuleRepository;
         this.currentUserProvider = currentUserProvider;
         this.events = events;
-        this.entityManager = entityManager;
     }
 
     // =========================================================================
@@ -251,42 +247,17 @@ public class ModuleService {
         return listProgressFor(student);
     }
 
-    /**
-     * Reanuda los intentos de la práctica de un estudiante que no la aprobó (solo ADMIN):
-     * se borra su intento (y con él sus respuestas, por cascada) y vuelve a tener
-     * {@value #MAX_PRACTICE_ATTEMPTS}. Las teorías siguen completadas.
-     */
+    /** Conserva el endpoint anterior sin permitir borrar intentos ya realizados. */
     @Transactional
     public List<ModuleSummaryResponse> resetPracticeAttempts(UUID userId, UUID moduleId) {
-        User student = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Estudiante no encontrado"));
-        CourseModule module = findModule(moduleId);
-        ModuleSection practice = sortedSections(moduleId).stream()
-                .filter(s -> s.getSectionType() == SectionType.PRACTICE)
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("El módulo no tiene sesión de práctica"));
-
-        StudentSectionProgress item = moduleProgressRepository
-                .findByUserIdAndModuleId(student.getId(), moduleId)
-                .flatMap(progress -> sectionProgressRepository.findByModuleProgressId(progress.getId()).stream()
-                        .filter(sp -> sp.getSection().getId().equals(practice.getId()))
-                        .findFirst())
-                .orElseThrow(() -> new ConflictException("El estudiante todavía no ha enviado esta práctica"));
-        if (isPassed(item, module.getPassingScore())) {
-            throw new ConflictException("El estudiante ya aprobó este módulo: no hay intentos que reanudar");
-        }
-
-        // El trigger de student_section_progress recalcula el estado del módulo (vuelve a "en curso")
-        StudentModuleProgress progress = item.getModuleProgress();
-        sectionProgressRepository.delete(item);
-        sectionProgressRepository.flush();
-        entityManager.refresh(progress);
-        return listProgressFor(student);
+        throw new ConflictException("La práctica tiene un único intento y no se puede reanudar.");
     }
 
     @Transactional(readOnly = true)
     public ModuleProgressResponse getMyProgress(UUID moduleId) {
-        return buildProgress(moduleId, currentUserProvider.requireCurrentUser());
+        User student = currentUserProvider.requireCurrentUser();
+        requireModuleAccess(student, findModule(moduleId));
+        return buildProgress(moduleId, student);
     }
 
     // =========================================================================
@@ -323,6 +294,7 @@ public class ModuleService {
         // Se muestran los módulos activos y también los inactivos donde el estudiante
         // ya tiene historial, para no ocultarle notas pasadas.
         List<CourseModule> modules = moduleRepository.findAllByOrderByOrderIndexAsc().stream()
+                .sorted(Comparator.comparingInt(CourseModule::getOrderIndex).thenComparing(CourseModule::getId))
                 .filter(module -> module.isActive() || progressByModule.containsKey(module.getId()))
                 .toList();
 
@@ -343,6 +315,7 @@ public class ModuleService {
                     .stream()
                     .collect(Collectors.groupingBy(sp -> sp.getModuleProgress().getId()));
 
+        Set<UUID> lockedModules = lockedModules(modules, progressByModule);
         return modules.stream()
                 .map(module -> {
                     StudentModuleProgress progress = progressByModule.get(module.getId());
@@ -350,7 +323,7 @@ public class ModuleService {
                             ? List.of()
                             : itemsByProgress.getOrDefault(progress.getId(), List.of());
                     return toSummary(module, sectionsByModule.getOrDefault(module.getId(), List.of()), progress, items,
-                            saved.contains(module.getId()));
+                            saved.contains(module.getId()), lockedModules.contains(module.getId()));
                 })
                 .toList();
     }
@@ -368,7 +341,7 @@ public class ModuleService {
                 : sectionProgressRepository.findByModuleProgressId(progress.getId());
 
         boolean saved = savedModuleRepository.existsByUserIdAndModuleId(student.getId(), moduleId);
-        return new ModuleProgressResponse(toSummary(module, sections, progress, items, saved),
+        return new ModuleProgressResponse(toSummary(module, sections, progress, items, saved, false),
                 toSectionProgress(sections, items, module.getPassingScore()));
     }
 
@@ -376,7 +349,7 @@ public class ModuleService {
                                             List<ModuleSection> sections,
                                             StudentModuleProgress progress,
                                             List<StudentSectionProgress> items,
-                                            boolean saved) {
+                                            boolean saved, boolean locked) {
         Map<UUID, StudentSectionProgress> bySection = items.stream()
                 .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
 
@@ -421,8 +394,36 @@ public class ModuleService {
                 progress == null ? null : progress.getCompletedAt(),
                 progress == null || progress.getStartedAt() == null ? null : progress.getUpdatedAt(),
                 saved,
+                locked,
                 practiceAttempts,
                 MAX_PRACTICE_ATTEMPTS);
+    }
+
+    static Set<UUID> lockedModules(List<CourseModule> modules, Map<UUID, StudentModuleProgress> progressByModule) {
+        Set<UUID> locked = new HashSet<>();
+        boolean previousFinished = true;
+        for (CourseModule module : modules) {
+            if (!module.isActive()) continue;
+            if (!previousFinished) locked.add(module.getId());
+            StudentModuleProgress progress = progressByModule.get(module.getId());
+            previousFinished = previousFinished && progress != null
+                    && (progress.getStatus() == ProgressStatus.COMPLETED || progress.getStatus() == ProgressStatus.FAILED);
+        }
+        return locked;
+    }
+
+    public void requireModuleAccess(User student, CourseModule target) {
+        if (!target.isActive()) {
+            // El historial de un módulo inactivo sigue disponible para su estudiante.
+            return;
+        }
+        List<CourseModule> modules = moduleRepository.findByActiveTrueOrderByOrderIndexAsc().stream()
+                .sorted(Comparator.comparingInt(CourseModule::getOrderIndex).thenComparing(CourseModule::getId)).toList();
+        Map<UUID, StudentModuleProgress> progress = moduleProgressRepository.findByUserId(student.getId()).stream()
+                .collect(Collectors.toMap(p -> p.getModule().getId(), p -> p));
+        if (lockedModules(modules, progress).contains(target.getId())) {
+            throw new ConflictException("Debes terminar los módulos anteriores para acceder a este módulo.");
+        }
     }
 
     private List<SectionProgressResponse> toSectionProgress(List<ModuleSection> sections,
