@@ -102,6 +102,14 @@ En GitHub abre un Pull Request con **base `develop`** y como origen tu rama. Esp
 
 Para habilitar imágenes y video en las teorías, aplica una sola vez `src/main/resources/db/migration/V9__theory_media.sql` en la base de datos del entorno correspondiente antes de arrancar esta versión. Flyway está desactivado en la configuración actual, por lo que no se ejecuta automáticamente. La migración agrega tres columnas opcionales; no incluye enlaces ni archivos multimedia.
 
+### Despliegue de prueba en Render
+
+El `Dockerfile` compila el backend con Java 21 y crea una imagen sin Maven. Crea un **Web Service** en Render conectado a este repositorio y selecciona **Docker**. El servicio escucha en el puerto 8080.
+
+Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
+
+Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío actual de correos de registro y recuperación no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
+
 ```bash
 mvn spring-boot:run
 ```

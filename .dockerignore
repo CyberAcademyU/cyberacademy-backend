@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+**/application-local.yml
+**/application-local.yaml
+target
+*.log
+.idea
+.vscode
