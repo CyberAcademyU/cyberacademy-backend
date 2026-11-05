@@ -81,6 +81,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(allowedOrigins); // Angular (configurable por CORS_ALLOWED_ORIGINS)
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setExposedHeaders(List.of("Retry-After"));
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
