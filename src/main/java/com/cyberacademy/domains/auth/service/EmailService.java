@@ -27,6 +27,7 @@ public class EmailService {
                         @Value("${security.mail.from:no-reply@cyberacademy.local}") String from) {
         this.transport = transport;
         this.from = from;
+        log.info("Transporte de correo seleccionado: {}", transport.getClass().getSimpleName());
     }
 
     public void sendPasswordResetCode(String to, String code) {
@@ -42,6 +43,8 @@ public class EmailService {
             message.saveChanges();
             transport.send(message);
         } catch (MailException | MessagingException | IOException e) {
+            log.error("No se pudo preparar o enviar el correo de recuperación: transporte={}, tipo={}",
+                    transport.getClass().getSimpleName(), e.getClass().getSimpleName());
             throw new EmailDeliveryException("No se pudo enviar el correo de recuperación.", e);
         }
     }
@@ -66,7 +69,8 @@ public class EmailService {
             log.info("Código de verificación enviado a [{}]", to);
 
         } catch (MailException | MessagingException | IOException e) {
-            log.error("No se pudo enviar el correo de verificación.");
+            log.error("No se pudo preparar o enviar el correo de verificación: transporte={}, tipo={}",
+                    transport.getClass().getSimpleName(), e.getClass().getSimpleName());
             throw new EmailDeliveryException(
                     "No se pudo enviar el código de verificación a tu correo. Intenta nuevamente.", e);
         }
