@@ -69,9 +69,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar abusos en el registro
-        if (!rateLimitService.isAllowed("register:" + email)) {
-            return ApiResponse.error("Demasiados intentos de registro. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("register:" + email);
 
         // 0. Validar que el dominio del correo exista y pueda recibir mensajes
         //    (evita enviar el OTP a dominios mal escritos, que provocan rebotes)
@@ -129,9 +127,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar fuerza bruta en el código OTP
-        if (!rateLimitService.isAllowed("verify-otp:" + email)) {
-            return ApiResponse.error("Demasiados intentos de verificación. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("verify-otp:" + email);
 
         // El bloqueo del usuario serializa la verificación y el reenvío, incluso
         // cuando aún no existe una fila OTP que pueda bloquearse.
@@ -188,9 +184,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar abuso en el reenvío de OTP
-        if (!rateLimitService.isAllowed("resend-otp:" + email)) {
-            return ApiResponse.error("Demasiados solicitudes de reenvío. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("resend-otp:" + email);
 
         EmailAddressVerifier.Result emailCheck = emailAddressVerifier.verify(email);
         if (!emailCheck.valid()) {
@@ -232,9 +226,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar fuerza bruta en el inicio de sesión
-        if (!rateLimitService.isAllowed("login:" + email)) {
-            return ApiResponse.error("Demasiados intentos de inicio de sesión. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("login:" + email);
 
         var userOptional = userRepository.findByEmailIgnoreCase(email);
         if (userOptional.isEmpty()) {

@@ -261,5 +261,6 @@ src/main/resources
 - Contraseñas con **Argon2id** (parámetros OWASP: 64 MB, 3 iteraciones).
 - JWT firmado con HMAC-SHA, expiración 60 min.
 - Bloqueo temporal de cuenta tras 5 intentos fallidos.
+- El limitador de autenticación responde con HTTP 429 y `Retry-After` en segundos al superar el límite por operación y correo/usuario o dirección de conexión. También se aplica a recuperación y cambio de contraseña. Es local a cada instancia: se reinicia al reiniciar el servicio; detrás de un proxy, `getRemoteAddr()` puede corresponder al proxy y agrupar usuarios. Comprueba la configuración de red antes de depender del límite por IP.
 - OTP de 6 dígitos, 15 min de validez, máximo 5 intentos, un solo uso.
 - Nunca se registran códigos OTP ni contraseñas en los logs.

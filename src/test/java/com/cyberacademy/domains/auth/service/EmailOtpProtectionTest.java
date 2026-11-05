@@ -52,7 +52,6 @@ class EmailOtpProtectionTest {
         User user = new User();
         user.setId(UUID.randomUUID());
         user.setFirstName("Ana");
-        when(limits.isAllowed(anyString())).thenReturn(true);
         when(verifier.verify("test@example.com")).thenReturn(new EmailAddressVerifier.Result(true, null));
         when(users.findLockedByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(user));
         ResendOtpRequest request = new ResendOtpRequest();
@@ -78,7 +77,6 @@ class EmailOtpProtectionTest {
         otp.setUserId(user.getId());
         otp.setOtpHash(protection.protect(user.getId(), "012345"));
         otp.setExpiresAt(OffsetDateTime.now().plusMinutes(15));
-        when(limits.isAllowed(anyString())).thenReturn(true);
         when(users.findLockedByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(user));
         when(otps.findTopByUserIdAndTypeOrderByCreatedAtDescIdDesc(user.getId(), OtpType.EMAIL_VERIFICATION))
                 .thenReturn(Optional.of(otp));
@@ -106,7 +104,6 @@ class EmailOtpProtectionTest {
         user.setId(UUID.randomUUID());
         user.setStatus(UserStatus.PENDING_VERIFICATION);
         user.setCreatedAt(OffsetDateTime.now().minusHours(25));
-        when(limits.isAllowed(anyString())).thenReturn(true);
         when(users.findLockedByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(user));
         VerifyOtpRequest request = new VerifyOtpRequest();
         request.setEmail("test@example.com");
