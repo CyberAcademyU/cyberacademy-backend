@@ -14,6 +14,10 @@ public class VerifyOtpRequest {
     @Size(min = 6, max = 6, message = "El codigo de verificacion debe tener 6 dígitos")
     private String otpCode;
 
+    @NotBlank(message = "La contraseña es obligatoria")
+    @Size(min = 8, max = 128, message = "La contraseña debe tener entre 8 y 128 caracteres")
+    private String password;
+
     public VerifyOtpRequest() {}
 
     public String getEmail() { return email; }
@@ -21,4 +25,6 @@ public class VerifyOtpRequest {
 
     public String getOtpCode() { return otpCode; }
     public void setOtpCode(String otpCode) { this.otpCode = otpCode; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
 }

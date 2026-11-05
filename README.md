@@ -61,6 +61,10 @@ Ese archivo está en `.gitignore`. En producción, usa variables de entorno:
 | `MAIL_FROM` | remitente visible |
 | `CORS_ALLOWED_ORIGINS` | orígenes permitidos, separados por comas |
 | `SPRING_PROFILES_ACTIVE` | `prod` en producción |
+| `MAIL_TRANSPORT` | `gmail-api` para enviar por HTTPS; `smtp` por defecto |
+| `GMAIL_CLIENT_ID` | ID del cliente OAuth de Google para Gmail API |
+| `GMAIL_CLIENT_SECRET` | secreto del cliente OAuth de Google |
+| `GMAIL_REFRESH_TOKEN` | token de actualización autorizado con el permiso `gmail.send` |
 
 ### Secretos y archivos locales
 
@@ -104,11 +108,37 @@ Para habilitar imágenes y video en las teorías, aplica una sola vez `src/main/
 
 ### Despliegue de prueba en Render
 
+Para desplegar la protección de OTP, aplica primero `V10__protect_email_verification_codes.sql`
+en la base de datos del entorno y despliega inmediatamente el backend nuevo. Los códigos
+de verificación antiguos se invalidan: sus usuarios deberán solicitar un nuevo código.
+La protección usa `JWT_SECRET` con separación de propósito; cambiar ese secreto también
+invalida los códigos pendientes. Coordina una ventana de mantenimiento para evitar que
+la versión anterior genere códigos en claro entre la migración y el despliegue.
+
+El registro requiere un frontend actualizado: primero se confirma el correo y se envía
+un código; la contraseña definitiva se establece al verificar ese código. El backend
+rechaza la verificación sin contraseña. Las cuentas pendientes no verificadas caducan
+a las 24 horas y se eliminan con sus OTP mediante una tarea que se ejecuta cada hora;
+las cuentas pendientes anteriores también están sujetas a esta limpieza. La verificación
+y el reenvío se rechazan una vez vencido el plazo. Tras la eliminación se puede volver
+a registrar el mismo correo. Despliega frontend y backend coordinadamente: el cliente
+anterior no puede completar la verificación con el contrato nuevo.
+
 El `Dockerfile` compila el backend con Java 21 y crea una imagen sin Maven. Crea un **Web Service** en Render conectado a este repositorio y selecciona **Docker**. El servicio escucha en el puerto 8080.
 
 Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
 
-Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío actual de correos de registro y recuperación no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
+Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío por SMTP no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
+
+Para enviar códigos desde Render Free, configura `MAIL_TRANSPORT=gmail-api`, las tres
+variables OAuth `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` y `GMAIL_REFRESH_TOKEN`, y
+`MAIL_FROM` con la dirección Gmail autorizada. El backend solicita un token de acceso
+para cada envío y utiliza la API de Gmail por HTTPS. También se utiliza para recuperación
+de contraseña. No registres ni compartas las credenciales; introdúcelas directamente
+en las variables de entorno de Render. La entrega real depende de la autorización y de
+los límites de Google. En aplicaciones OAuth externas en modo de prueba, los refresh
+tokens con el permiso Gmail pueden vencer a los siete días: esta configuración requiere
+renovación y no ofrece envío continuo sin resolver la publicación de OAuth.
 
 ```bash
 mvn spring-boot:run
