@@ -73,3 +73,24 @@ security:
 # Zona horaria de rachas, calendario de actividad y semana de la clasificación
 app:
   time-zone: ${APP_TIME_ZONE:America/Panama}
+
+# Exportación de métricas desactivada hasta configurar Grafana Cloud.
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      exposure:
+        exclude: "*"
+  metrics:
+    tags:
+      application: cyberacademy-backend
+  otlp:
+    metrics:
+      export:
+        enabled: ${GRAFANA_METRICS_ENABLED:false}
+        url: ${GRAFANA_OTLP_METRICS_URL:http://localhost:4318/v1/metrics}
+        step: 60s
+        headers:
+          Authorization: ${GRAFANA_OTLP_AUTHORIZATION:}
+        resource-attributes:
+          service.name: cyberacademy-backend

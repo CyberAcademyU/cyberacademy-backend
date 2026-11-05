@@ -140,6 +140,35 @@ los límites de Google. En aplicaciones OAuth externas en modo de prueba, los re
 tokens con el permiso Gmail pueden vencer a los siete días: esta configuración requiere
 renovación y no ofrece envío continuo sin resolver la publicación de OAuth.
 
+### Métricas en Grafana Cloud
+
+La exportación de métricas técnicas mediante Micrometer y OTLP/HTTP está **desactivada
+por defecto**. No hace públicos endpoints de Actuator. Para una prueba en Render Free:
+
+1. En el portal de Grafana Cloud, abre tu stack y selecciona **OpenTelemetry → Configure**.
+   Genera una credencial con permiso de escritura de métricas y obtén el endpoint OTLP.
+2. En las variables de entorno del servicio backend de Render configura:
+   - `GRAFANA_METRICS_ENABLED=true`
+   - `GRAFANA_OTLP_METRICS_URL`: URL OTLP de tu stack **incluyendo `/v1/metrics`**.
+     Si Grafana muestra una URL base terminada en `/otlp`, añade `/v1/metrics`.
+   - `GRAFANA_OTLP_AUTHORIZATION`: valor completo de la cabecera HTTP de autorización,
+     por ejemplo `Basic <credencial-codificada>`. Si el asistente muestra
+     `Authorization=Basic%20...`, copia el valor posterior a `Authorization=` y
+     reemplaza `%20` por un espacio. No copies el prefijo `Authorization=`.
+3. Guarda y despliega el servicio. No incluyas estos valores en Git ni los compartas.
+4. En Grafana, importa `observability/grafana-cyberacademy.json` desde **Dashboards →
+   New → Import** y selecciona la fuente de datos Prometheus/Mimir de Grafana Cloud.
+5. Genera tráfico normal y espera al menos dos intervalos de exportación (60 segundos
+   cada uno) para ver las tasas. Las series 429/5xx aparecerán cuando ocurran esos estados.
+
+La aplicación envía métricas agregadas (por ejemplo, métodos, rutas de API, estados,
+latencia y memoria JVM), no el cuerpo de peticiones, contraseñas, códigos OTP ni tokens.
+Esta configuración no envía logs ni trazas. En Render Free, al suspenderse la instancia
+no se exportan datos; un hueco en el panel no identifica por sí solo la causa y las
+métricas en memoria se reinician. Consulta los límites vigentes de tu plan Grafana
+Cloud. El panel es una plantilla inicial y sus consultas deben comprobarse con las
+series que reciba tu stack.
+
 ```bash
 mvn spring-boot:run
 ```
