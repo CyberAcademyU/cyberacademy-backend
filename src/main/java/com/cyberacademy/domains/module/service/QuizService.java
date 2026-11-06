@@ -117,7 +117,7 @@ public class QuizService {
                 toStudentQuestions(questions));
     }
 
-    /** Comprueba la pregunta de comprensión de una teoría y la completa si es correcta. */
+    /** Comprueba la pregunta de comprensión de una teoría y completa la sesión con cualquier respuesta. */
     @Transactional
     public CheckAnswerResponse checkTheoryAnswer(UUID moduleId, UUID sectionId, CheckAnswerRequest request) {
         User student = currentUserProvider.requireCurrentUser();
@@ -161,20 +161,14 @@ public class QuizService {
 
         item.setAttempts(item.getAttempts() + 1);
 
-        if (!option.isCorrect()) {
-            if (item.getStatus() != ProgressStatus.COMPLETED) {
-                item.setStatus(ProgressStatus.IN_PROGRESS);
-            }
-            sectionProgressRepository.saveAndFlush(item);
-            // Solo se explica la opción elegida: la explicación completa revelaría la respuesta
-            return new CheckAnswerResponse(
-                    false,
-                    false,
-                    "Respuesta incorrecta. Revisa el contenido e inténtalo de nuevo.",
-                    option.getFeedback(),
-                    null);
-        }
+        UUID correctOptionId = question.getOptions().stream()
+                .filter(QuestionOption::isCorrect)
+                .map(QuestionOption::getId)
+                .findFirst()
+                .orElse(null);
 
+        // La sesión queda completada con una respuesta correcta o incorrecta:
+        // fallar revela la opción correcta y desbloquea la siguiente sesión de teoría.
         item.setStatus(ProgressStatus.COMPLETED);
         item.setCompletedAt(OffsetDateTime.now());
         item.setScore(null); // las teorías no llevan nota
@@ -183,12 +177,23 @@ public class QuizService {
         // El trigger de la BD ya recalculó el módulo; refrescamos para leer el estado real.
         entityManager.refresh(progress);
 
+        if (!option.isCorrect()) {
+            return new CheckAnswerResponse(
+                    false,
+                    true,
+                    "Respuesta incorrecta. Puedes continuar con la siguiente sesión.",
+                    option.getFeedback(),
+                    question.getExplanation(),
+                    correctOptionId);
+        }
+
         return new CheckAnswerResponse(
                 true,
                 true,
                 "¡Respuesta correcta! Se desbloqueó la siguiente sesión.",
                 option.getFeedback(),
-                question.getExplanation());
+                question.getExplanation(),
+                correctOptionId);
     }
 
     /** Corrige la práctica. Solo se permite un intento. */
