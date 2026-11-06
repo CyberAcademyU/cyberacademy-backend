@@ -220,7 +220,7 @@ Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automá
 
 Flujo del estudiante:
 
-1. Lee la **Teoría 1** y responde su pregunta de comprensión. Si acierta, la sesión queda completada y se desbloquea la **Teoría 2**; después la **3**.
+1. Lee la **Teoría 1** y responde su pregunta de comprensión: con una respuesta correcta o incorrecta la sesión queda completada y se desbloquea la siguiente (si falla, se muestra la opción correcta); después la **3**.
 2. Las sesiones completadas quedan bloqueadas: no se puede volver atrás ni saltar el orden.
 3. Al completar las 3 teorías se desbloquea la **Práctica**, un cuestionario con las preguntas que definió el administrador.
 4. La práctica tiene **un solo intento**. El backend la corrige (`aciertos / total × 100`), guarda la nota y bloquea todas las sesiones.
