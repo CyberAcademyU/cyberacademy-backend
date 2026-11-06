@@ -16,6 +16,7 @@ import com.cyberacademy.security.CurrentUserProvider;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -49,6 +50,7 @@ public class QuizService {
     private final CurrentUserProvider currentUserProvider;
     private final ModuleService moduleService;
     private final EntityManager entityManager;
+    private final ApplicationEventPublisher events;
 
     public QuizService(CourseModuleRepository moduleRepository,
                        ModuleSectionRepository sectionRepository,
@@ -58,7 +60,8 @@ public class QuizService {
                        PracticeAnswerRepository practiceAnswerRepository,
                        CurrentUserProvider currentUserProvider,
                        ModuleService moduleService,
-                       EntityManager entityManager) {
+                       EntityManager entityManager,
+                       ApplicationEventPublisher events) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
         this.moduleProgressRepository = moduleProgressRepository;
@@ -68,6 +71,7 @@ public class QuizService {
         this.currentUserProvider = currentUserProvider;
         this.moduleService = moduleService;
         this.entityManager = entityManager;
+        this.events = events;
     }
 
     // =========================================================================
@@ -79,6 +83,7 @@ public class QuizService {
     public SectionContentResponse getStudentSection(UUID moduleId, UUID sectionId) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection section = findSection(sections, sectionId);
@@ -104,16 +109,20 @@ public class QuizService {
                 section.getSectionOrder(),
                 section.getTitle(),
                 section.getContent(),
+                section.getImageUrl1(),
+                section.getImageUrl2(),
+                section.getVideoUrl(),
                 access.status(),
                 true,
                 toStudentQuestions(questions));
     }
 
-    /** Comprueba la pregunta de comprensión de una teoría y la completa si es correcta. */
+    /** Comprueba la pregunta de comprensión de una teoría y completa la sesión con cualquier respuesta. */
     @Transactional
     public CheckAnswerResponse checkTheoryAnswer(UUID moduleId, UUID sectionId, CheckAnswerRequest request) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection section = findSection(sections, sectionId);
@@ -152,20 +161,14 @@ public class QuizService {
 
         item.setAttempts(item.getAttempts() + 1);
 
-        if (!option.isCorrect()) {
-            if (item.getStatus() != ProgressStatus.COMPLETED) {
-                item.setStatus(ProgressStatus.IN_PROGRESS);
-            }
-            sectionProgressRepository.saveAndFlush(item);
-            // Solo se explica la opción elegida: la explicación completa revelaría la respuesta
-            return new CheckAnswerResponse(
-                    false,
-                    false,
-                    "Respuesta incorrecta. Revisa el contenido e inténtalo de nuevo.",
-                    option.getFeedback(),
-                    null);
-        }
+        UUID correctOptionId = question.getOptions().stream()
+                .filter(QuestionOption::isCorrect)
+                .map(QuestionOption::getId)
+                .findFirst()
+                .orElse(null);
 
+        // La sesión queda completada con una respuesta correcta o incorrecta:
+        // fallar revela la opción correcta y desbloquea la siguiente sesión de teoría.
         item.setStatus(ProgressStatus.COMPLETED);
         item.setCompletedAt(OffsetDateTime.now());
         item.setScore(null); // las teorías no llevan nota
@@ -174,12 +177,23 @@ public class QuizService {
         // El trigger de la BD ya recalculó el módulo; refrescamos para leer el estado real.
         entityManager.refresh(progress);
 
+        if (!option.isCorrect()) {
+            return new CheckAnswerResponse(
+                    false,
+                    true,
+                    "Respuesta incorrecta. Puedes continuar con la siguiente sesión.",
+                    option.getFeedback(),
+                    question.getExplanation(),
+                    correctOptionId);
+        }
+
         return new CheckAnswerResponse(
                 true,
                 true,
                 "¡Respuesta correcta! Se desbloqueó la siguiente sesión.",
                 option.getFeedback(),
-                question.getExplanation());
+                question.getExplanation(),
+                correctOptionId);
     }
 
     /** Corrige la práctica. Solo se permite un intento. */
@@ -189,6 +203,7 @@ public class QuizService {
         // Serializa incluso el primer envío, antes de que exista el progreso.
         entityManager.lock(student, LockModeType.PESSIMISTIC_WRITE);
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         List<ModuleSection> sections = sortedSections(moduleId);
         ModuleSection practice = sections.stream()
@@ -219,8 +234,7 @@ public class QuizService {
             throw new ConflictException("Ya aprobaste esta práctica");
         }
         if (ModuleService.isClosed(practiceItem, module.getPassingScore())) {
-            throw new ConflictException("Usaste los " + ModuleService.MAX_PRACTICE_ATTEMPTS
-                    + " intentos de esta práctica. Pide al administrador que los reanude");
+            throw new ConflictException("Ya enviaste esta práctica; solo se permite un intento.");
         }
 
         List<SectionQuestion> questions =
@@ -298,6 +312,7 @@ public class QuizService {
     public PracticeReviewResponse getPracticeReview(UUID moduleId) {
         User student = currentUserProvider.requireCurrentUser();
         CourseModule module = findModule(moduleId);
+        moduleService.requireModuleAccess(student, module);
 
         ModuleSection practice = sortedSections(moduleId).stream()
                 .filter(s -> s.getSectionType() == SectionType.PRACTICE)
@@ -422,6 +437,9 @@ public class QuizService {
 
         section.setTitle(title);
         section.setContent(content);
+        if (request.isImageUrl1Provided()) section.setImageUrl1(validateMediaUrl(request.getImageUrl1()));
+        if (request.isImageUrl2Provided()) section.setImageUrl2(validateMediaUrl(request.getImageUrl2()));
+        if (request.isVideoUrlProvided()) section.setVideoUrl(validateMediaUrl(request.getVideoUrl()));
         section.setUpdatedAt(OffsetDateTime.now());
         sectionRepository.save(section);
 
@@ -454,6 +472,8 @@ public class QuizService {
         }
 
         questionRepository.flush();
+
+        events.publishEvent(new PublicCatalogChangedEvent());
 
         return toAdminResponse(
                 section,
@@ -557,11 +577,28 @@ public class QuizService {
                 section.getSectionOrder(),
                 section.getTitle(),
                 section.getContent(),
+                section.getImageUrl1(),
+                section.getImageUrl2(),
+                section.getVideoUrl(),
                 mapped);
     }
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    static String validateMediaUrl(String value) {
+        String url = blankToNull(value);
+        if (url == null) return null;
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) {
+                throw new IllegalArgumentException();
+            }
+            return url;
+        } catch (java.net.URISyntaxException | IllegalArgumentException ex) {
+            throw new BadRequestException("Los enlaces de recursos deben ser URL HTTPS válidas.");
+        }
     }
 
     private CourseModule findModule(UUID moduleId) {

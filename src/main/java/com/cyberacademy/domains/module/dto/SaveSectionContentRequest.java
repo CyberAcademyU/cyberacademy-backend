@@ -19,6 +19,23 @@ public class SaveSectionContentRequest {
     @Size(max = 20000, message = "El contenido no puede superar los 20000 caracteres")
     private String content;
 
+    @Size(max = 2048) private String imageUrl1;
+    @Size(max = 2048) private String imageUrl2;
+    @Size(max = 2048) private String videoUrl;
+    private boolean imageUrl1Provided;
+    private boolean imageUrl2Provided;
+    private boolean videoUrlProvided;
+
+    public String getImageUrl1() { return imageUrl1; }
+    public void setImageUrl1(String value) { imageUrl1 = value; imageUrl1Provided = true; }
+    public boolean isImageUrl1Provided() { return imageUrl1Provided; }
+    public String getImageUrl2() { return imageUrl2; }
+    public void setImageUrl2(String value) { imageUrl2 = value; imageUrl2Provided = true; }
+    public boolean isImageUrl2Provided() { return imageUrl2Provided; }
+    public String getVideoUrl() { return videoUrl; }
+    public void setVideoUrl(String value) { videoUrl = value; videoUrlProvided = true; }
+    public boolean isVideoUrlProvided() { return videoUrlProvided; }
+
     @NotNull(message = "Debes enviar las preguntas de la sesión")
     @Valid
     private List<QuestionInput> questions;

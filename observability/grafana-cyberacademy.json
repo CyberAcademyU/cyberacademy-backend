@@ -1,0 +1,71 @@
+{
+  "__inputs": [{"name": "DS_PROMETHEUS", "label": "Grafana Cloud Metrics", "type": "datasource", "pluginId": "prometheus", "pluginName": "Prometheus"}],
+  "title": "CyberAcademy · Salud del backend",
+  "tags": ["cyberacademy", "spring-boot"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "title": "Peticiones por segundo", "type": "timeseries",
+      "description": "Tasa por estado HTTP. Puede no haber datos hasta que se reciban peticiones.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 2, "title": "Tiempo medio de respuesta", "type": "timeseries",
+      "description": "Tiempo medio de las peticiones durante los últimos cinco minutos.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(rate(http_server_requests_seconds_sum{application=\"cyberacademy-backend\"}[5m])) / sum(rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "Media"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 3, "title": "Respuestas 429 y 5xx", "type": "timeseries",
+      "description": "Respuestas de límite de solicitudes y errores del servidor por segundo.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\",status=~\"429|5..\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 4, "title": "Memoria JVM", "type": "timeseries",
+      "description": "Memoria utilizada por la máquina virtual Java, agrupada por área.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (area) (jvm_memory_used_bytes{application=\"cyberacademy-backend\"})", "legendFormat": "{{area}}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 5, "title": "CPU del proceso", "type": "timeseries",
+      "description": "Uso de CPU del proceso Java; no equivale a la CPU total de Render.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "process_cpu_usage{application=\"cyberacademy-backend\"}", "legendFormat": "Proceso"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0}, "overrides": []}
+    },
+    {
+      "id": 6, "title": "Conexiones de base de datos", "type": "timeseries",
+      "description": "Conexiones activas e inactivas del pool Hikari.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(hikaricp_connections_active{application=\"cyberacademy-backend\"})", "legendFormat": "Activas"},
+        {"refId": "B", "expr": "sum(hikaricp_connections_idle{application=\"cyberacademy-backend\"})", "legendFormat": "Inactivas"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []}
+    },
+    {
+      "id": 7, "title": "Tiempo activo del proceso", "type": "stat",
+      "description": "Tiempo desde el último inicio del proceso. No es una comprobación externa de disponibilidad.",
+      "gridPos": {"h": 5, "w": 12, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "process_uptime_seconds{application=\"cyberacademy-backend\"}", "legendFormat": "Tiempo activo"}],
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
+    }
+  ]
+}
