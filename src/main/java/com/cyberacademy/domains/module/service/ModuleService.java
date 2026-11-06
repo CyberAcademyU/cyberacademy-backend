@@ -118,6 +118,7 @@ public class ModuleService {
         // El trigger trg_modules_default_sections crea las 3 teorías + 1 práctica
         moduleRepository.saveAndFlush(module);
         if (module.isActive()) events.publishEvent(new ModuleCreatedEvent(module.getId(), module.getTitle()));
+        events.publishEvent(new PublicCatalogChangedEvent());
 
         return toModuleResponse(module, sortedSections(module.getId()));
     }
@@ -147,6 +148,7 @@ public class ModuleService {
         module.setUpdatedAt(OffsetDateTime.now());
 
         moduleRepository.save(module);
+        events.publishEvent(new PublicCatalogChangedEvent());
         return toModuleResponse(module, sortedSections(moduleId));
     }
 
@@ -182,6 +184,7 @@ public class ModuleService {
 
         section.setUpdatedAt(OffsetDateTime.now());
         sectionRepository.save(section);
+        events.publishEvent(new PublicCatalogChangedEvent());
 
         return toSectionResponse(section);
     }

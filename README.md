@@ -206,6 +206,16 @@ Base: `/api/v1`
 
 ## Módulos y progreso
 
+El catálogo público de `/public/modules` se guarda en una caché local acotada durante
+un máximo de 60 segundos para evitar repetir las consultas a módulos y secciones. Al
+confirmar la creación o edición de módulos o sus secciones, la instancia invalida la
+caché; una transacción revertida no la invalida. El navegador debe revalidar la
+respuesta para no conservar durante cinco minutos un catálogo editado. Los cambios
+directos en la base de datos o en otras instancias se reflejan al vencer el plazo.
+La caché se pierde al reiniciar Render y no incluye cuentas, sesiones ni progreso de
+estudiantes. Esta optimización reduce consultas repetidas, pero no evita el tiempo de
+arranque de Render Free ni acelera todas las rutas de la API.
+
 Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automáticamente por un trigger al crear el módulo.
 
 Flujo del estudiante:

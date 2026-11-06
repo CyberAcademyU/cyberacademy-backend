@@ -16,6 +16,7 @@ import com.cyberacademy.security.CurrentUserProvider;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -49,6 +50,7 @@ public class QuizService {
     private final CurrentUserProvider currentUserProvider;
     private final ModuleService moduleService;
     private final EntityManager entityManager;
+    private final ApplicationEventPublisher events;
 
     public QuizService(CourseModuleRepository moduleRepository,
                        ModuleSectionRepository sectionRepository,
@@ -58,7 +60,8 @@ public class QuizService {
                        PracticeAnswerRepository practiceAnswerRepository,
                        CurrentUserProvider currentUserProvider,
                        ModuleService moduleService,
-                       EntityManager entityManager) {
+                       EntityManager entityManager,
+                       ApplicationEventPublisher events) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
         this.moduleProgressRepository = moduleProgressRepository;
@@ -68,6 +71,7 @@ public class QuizService {
         this.currentUserProvider = currentUserProvider;
         this.moduleService = moduleService;
         this.entityManager = entityManager;
+        this.events = events;
     }
 
     // =========================================================================
@@ -463,6 +467,8 @@ public class QuizService {
         }
 
         questionRepository.flush();
+
+        events.publishEvent(new PublicCatalogChangedEvent());
 
         return toAdminResponse(
                 section,
