@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.List;
 
 /** Rutas sin sesión (/public/**): solo lectura y solo datos de presentación. */
@@ -27,7 +26,7 @@ public class PublicCatalogController {
     @GetMapping("/modules")
     public ResponseEntity<ApiResponse<List<PublicModuleResponse>>> modules() {
         return ResponseEntity.ok()
-                .cacheControl(CacheControl.maxAge(Duration.ofMinutes(5)).cachePublic())
+                .cacheControl(CacheControl.noCache().cachePublic())
                 .body(ApiResponse.ok("Catálogo obtenido correctamente", catalogService.listPublicModules()));
     }
 }
