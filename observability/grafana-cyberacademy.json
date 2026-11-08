@@ -13,7 +13,7 @@
       "description": "Tasa por estado HTTP. Puede no haber datos hasta que se reciban peticiones.",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
-      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
+      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_milliseconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
       "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
     },
     {
@@ -21,15 +21,15 @@
       "description": "Tiempo medio de las peticiones durante los últimos cinco minutos.",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
-      "targets": [{"refId": "A", "expr": "sum(rate(http_server_requests_seconds_sum{application=\"cyberacademy-backend\"}[5m])) / sum(rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "Media"}],
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+      "targets": [{"refId": "A", "expr": "sum(rate(http_server_requests_milliseconds_sum{application=\"cyberacademy-backend\"}[5m])) / sum(rate(http_server_requests_milliseconds_count{application=\"cyberacademy-backend\"}[5m]))", "legendFormat": "Media"}],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []}
     },
     {
       "id": 3, "title": "Respuestas 429 y 5xx", "type": "timeseries",
       "description": "Respuestas de límite de solicitudes y errores del servidor por segundo.",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
       "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
-      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"cyberacademy-backend\",status=~\"429|5..\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
+      "targets": [{"refId": "A", "expr": "sum by (status) (rate(http_server_requests_milliseconds_count{application=\"cyberacademy-backend\",status=~\"429|5..\"}[5m]))", "legendFormat": "HTTP {{status}}"}],
       "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
     },
     {
@@ -64,8 +64,8 @@
       "description": "Tiempo desde el último inicio del proceso. No es una comprobación externa de disponibilidad.",
       "gridPos": {"h": 5, "w": 12, "x": 0, "y": 24},
       "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
-      "targets": [{"refId": "A", "expr": "process_uptime_seconds{application=\"cyberacademy-backend\"}", "legendFormat": "Tiempo activo"}],
-      "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []}
+      "targets": [{"refId": "A", "expr": "process_uptime_milliseconds{application=\"cyberacademy-backend\"}", "legendFormat": "Tiempo activo"}],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}, "overrides": []}
     }
   ]
 }
