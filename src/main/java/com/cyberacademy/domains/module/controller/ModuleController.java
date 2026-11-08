@@ -37,8 +37,13 @@ public class ModuleController {
                 .body(streamService.connect((String) authentication.getCredentials()));
     }
 
-    /** Catálogo de módulos (por defecto solo los activos). */
+    /**
+     * Catálogo de módulos (por defecto solo los activos).
+     * Los módulos inactivos (borradores) son contenido interno: solo el ADMIN puede pedirlos.
+     * Cualquier otro usuario autenticado que pida includeInactive=true recibe 403.
+     */
     @GetMapping
+    @PreAuthorize("#includeInactive == false or hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<ModuleResponse>>> list(
             @RequestParam(defaultValue = "false") boolean includeInactive) {
         return ResponseEntity.ok(ApiResponse.ok(

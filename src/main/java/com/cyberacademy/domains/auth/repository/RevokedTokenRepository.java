@@ -16,4 +16,7 @@ public interface RevokedTokenRepository extends JpaRepository<RevokedToken, UUID
     boolean existsByJti(String jti);
 
     Optional<RevokedToken> findByUserIdAndExpiresAtAfter(UUID userId, OffsetDateTime now);
+
+    /** Borra los registros de revocación cuyo token ya expiró por sí solo (devuelve filas eliminadas). */
+    long deleteByExpiresAtBefore(OffsetDateTime cutoff);
 }
