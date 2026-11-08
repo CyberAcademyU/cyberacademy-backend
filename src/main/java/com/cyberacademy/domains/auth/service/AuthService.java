@@ -36,6 +36,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final EmailOtpRepository otpRepository;
     private final RevokedTokenRepository revokedTokenRepository;
+    private final com.cyberacademy.security.RevokedTokenCache revokedTokenCache;
     private final RateLimitService rateLimitService;
     private final PasswordService passwordService;
     private final OtpProtectionService otpProtectionService;
@@ -47,6 +48,7 @@ public class AuthService {
     public AuthService(UserRepository userRepository,
                        EmailOtpRepository otpRepository,
                        RevokedTokenRepository revokedTokenRepository,
+                       RevokedTokenCache revokedTokenCache,
                        RateLimitService rateLimitService,
                        PasswordService passwordService,
                        OtpProtectionService otpProtectionService,
@@ -56,6 +58,7 @@ public class AuthService {
         this.userRepository = userRepository;
         this.otpRepository = otpRepository;
         this.revokedTokenRepository = revokedTokenRepository;
+        this.revokedTokenCache = revokedTokenCache;
         this.rateLimitService = rateLimitService;
         this.passwordService = passwordService;
         this.otpProtectionService = otpProtectionService;
@@ -308,5 +311,7 @@ public class AuthService {
                 .atZone(java.time.ZoneOffset.UTC)
                 .toOffsetDateTime();
         revokedTokenRepository.save(new RevokedToken(claims.getId(), userId, expiresAt));
+        // Que el logout surta efecto en la próxima petición, no hasta el TTL del cache
+        revokedTokenCache.invalidate(claims.getId());
     }
 }

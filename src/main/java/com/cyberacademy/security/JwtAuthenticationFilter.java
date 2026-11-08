@@ -1,6 +1,5 @@
 package com.cyberacademy.security;
 
-import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.auth.model.UserStatus;
 import io.jsonwebtoken.Claims;
@@ -27,14 +26,14 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ordered {
 
     private final JwtService jwtService;
-    private final RevokedTokenRepository revokedTokenRepository;
+    private final RevokedTokenCache revokedTokenCache;
     private final UserRepository userRepository;
 
     public JwtAuthenticationFilter(JwtService jwtService,
-                                   RevokedTokenRepository revokedTokenRepository,
+                                   RevokedTokenCache revokedTokenCache,
                                    UserRepository userRepository) {
         this.jwtService = jwtService;
-        this.revokedTokenRepository = revokedTokenRepository;
+        this.revokedTokenCache = revokedTokenCache;
         this.userRepository = userRepository;
     }
 
@@ -47,7 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
             if (jwtService.validateToken(token)) {
                 // Rechazar si el token ha sido revocado (logout, suspensión, cambio de rol, etc.)
                 String jti = jwtService.getJtiFromToken(token);
-                if (revokedTokenRepository.existsByJti(jti)) {
+                if (revokedTokenCache.isRevoked(jti)) {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.getWriter().write("{\"error\":\"Token revocado. Inicie sesión nuevamente.\"}");
                     response.setContentType("application/json");

@@ -38,13 +38,30 @@ public class GamificationService {
     private final GamificationRepository gamificationRepository;
     private final CourseModuleRepository moduleRepository;
     private final ZoneId zone;
+    /**
+     * fn_leaderboard calcula el ranking completo de la BD; con esta cache (TTL corto)
+     * las lecturas repetidas (perfil, cabecera, panel) reutilizan el mismo cómputo.
+     * La XP puede atrasar como máximo el TTL — imperceptible en gamificación.
+     */
+    private final com.github.benmanes.caffeine.cache.Cache<OffsetDateTime, List<LeaderboardRow>> leaderboardCache;
 
     public GamificationService(GamificationRepository gamificationRepository,
                                CourseModuleRepository moduleRepository,
-                               @Value("${app.time-zone:America/Panama}") String zone) {
+                               @Value("${app.time-zone:America/Panama}") String zone,
+                               @Value("${app.leaderboard-cache-seconds:20}") long leaderboardTtlSeconds) {
         this.gamificationRepository = gamificationRepository;
         this.moduleRepository = moduleRepository;
         this.zone = ZoneId.of(zone);
+        this.leaderboardCache = com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+                .expireAfterWrite(Duration.ofSeconds(Math.max(1, leaderboardTtlSeconds)))
+                .maximumSize(16)
+                .build();
+    }
+
+    /** Lista de filas del ranking, cacheada por ventana de tiempo. Inmutable. */
+    private List<LeaderboardRow> leaderboardRows(OffsetDateTime since) {
+        return List.copyOf(leaderboardCache.get(since, key ->
+                List.copyOf(gamificationRepository.leaderboard(key))));
     }
 
     // =========================================================================
@@ -53,7 +70,7 @@ public class GamificationService {
 
     @Transactional(readOnly = true)
     public LeaderboardResponse leaderboard(User me, Period period) {
-        List<LeaderboardRow> rows = gamificationRepository.leaderboard(period == Period.WEEK ? startOfWeek() : BEGINNING);
+        List<LeaderboardRow> rows = leaderboardRows(period == Period.WEEK ? startOfWeek() : BEGINNING);
 
         List<LeaderboardEntryResponse> entries = rows.stream()
                 .filter(row -> row.getRanking() != null)
@@ -91,7 +108,7 @@ public class GamificationService {
 
     @Transactional(readOnly = true)
     public PlayerStats statsFor(User user) {
-        List<LeaderboardRow> rows = gamificationRepository.leaderboard(BEGINNING);
+        List<LeaderboardRow> rows = leaderboardRows(BEGINNING);
         Optional<LeaderboardRow> mine = rows.stream()
                 .filter(row -> row.getUserId().equals(user.getId()))
                 .findFirst();
