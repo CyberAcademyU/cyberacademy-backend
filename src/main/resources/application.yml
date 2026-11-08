@@ -62,9 +62,35 @@ security:
     # Lista separada por comas. Ej: http://localhost:4200,https://app.cyberacademy.com
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
   mail:
+    transport: ${MAIL_TRANSPORT:smtp}
+    gmail:
+      client-id: ${GMAIL_CLIENT_ID:}
+      client-secret: ${GMAIL_CLIENT_SECRET:}
+      refresh-token: ${GMAIL_REFRESH_TOKEN:}
     # Remitente que verá el estudiante. Ej: CyberAcademy <tu.correo@gmail.com>
     from: ${MAIL_FROM:${MAIL_USERNAME:no-reply@cyberacademy.local}}
 
 # Zona horaria de rachas, calendario de actividad y semana de la clasificación
 app:
   time-zone: ${APP_TIME_ZONE:America/Panama}
+
+# Exportación de métricas desactivada hasta configurar Grafana Cloud.
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      exposure:
+        exclude: "*"
+  metrics:
+    tags:
+      application: cyberacademy-backend
+  otlp:
+    metrics:
+      export:
+        enabled: ${GRAFANA_METRICS_ENABLED:false}
+        url: ${GRAFANA_OTLP_METRICS_URL:http://localhost:4318/v1/metrics}
+        step: 60s
+        headers:
+          Authorization: ${GRAFANA_OTLP_AUTHORIZATION:}
+        resource-attributes:
+          service.name: cyberacademy-backend

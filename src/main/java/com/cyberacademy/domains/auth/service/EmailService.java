@@ -2,33 +2,37 @@ package com.cyberacademy.domains.auth.service;
 
 import com.cyberacademy.exception.EmailDeliveryException;
 import jakarta.mail.MessagingException;
+import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.MailAuthenticationException;
 import org.springframework.mail.MailException;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
+
+import java.io.IOException;
+import java.util.Properties;
 
 @Service
 public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
-    private final JavaMailSender mailSender;
+    private final EmailTransport transport;
     private final String from;
 
-    public EmailService(JavaMailSender mailSender,
+    public EmailService(EmailTransport transport,
                         @Value("${security.mail.from:no-reply@cyberacademy.local}") String from) {
-        this.mailSender = mailSender;
+        this.transport = transport;
         this.from = from;
+        log.info("Transporte de correo seleccionado: {}", transport.getClass().getSimpleName());
     }
 
     public void sendPasswordResetCode(String to, String code) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessage message = new MimeMessage(Session.getInstance(new Properties()));
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(from);
             helper.setTo(to);
@@ -36,8 +40,11 @@ public class EmailService {
             helper.setText(buildCodeEmail(null, code,
                     "Usa este código para recuperar tu contraseña:",
                     "Si no solicitaste recuperar tu contraseña, puedes ignorar este mensaje."), true);
-            mailSender.send(message);
-        } catch (MailException | MessagingException e) {
+            message.saveChanges();
+            transport.send(message);
+        } catch (MailException | MessagingException | IOException e) {
+            log.error("No se pudo preparar o enviar el correo de recuperación: transporte={}, tipo={}",
+                    transport.getClass().getSimpleName(), e.getClass().getSimpleName());
             throw new EmailDeliveryException("No se pudo enviar el correo de recuperación.", e);
         }
     }
@@ -50,24 +57,20 @@ public class EmailService {
         String html = buildVerificationEmail(firstName, code);
 
         try {
-            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessage message = new MimeMessage(Session.getInstance(new Properties()));
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(from);
             helper.setTo(to);
-            helper.setSubject("CyberAcademy - Tu código de verificación: " + code);
+            helper.setSubject("CyberAcademy - Tu código de verificación");
             helper.setText(html, true);
 
-            mailSender.send(message);
+            message.saveChanges();
+            transport.send(message);
             log.info("Código de verificación enviado a [{}]", to);
 
-        } catch (MailAuthenticationException e) {
-            // Credenciales SMTP incorrectas: es un error de configuración del servidor
-            log.error("Autenticación SMTP fallida. Revisa MAIL_USERNAME y MAIL_PASSWORD: {}", e.getMessage());
-            throw new EmailDeliveryException(
-                    "El servicio de correo no está configurado correctamente. Contacta al administrador.", e);
-
-        } catch (MailException | MessagingException e) {
-            log.error("No se pudo enviar el correo a [{}]: {}", to, e.getMessage());
+        } catch (MailException | MessagingException | IOException e) {
+            log.error("No se pudo preparar o enviar el correo de verificación: transporte={}, tipo={}",
+                    transport.getClass().getSimpleName(), e.getClass().getSimpleName());
             throw new EmailDeliveryException(
                     "No se pudo enviar el código de verificación a tu correo. Intenta nuevamente.", e);
         }
@@ -125,7 +128,7 @@ public class EmailService {
                   </body>
                 </html>
                 """
-                .replace("{{NAME}}", name)
+                .replace("{{NAME}}", HtmlUtils.htmlEscape(name))
                 .replace("{{INSTRUCTION}}", instruction)
                 .replace("{{DISCLAIMER}}", disclaimer)
                 .replace("{{CODE}}", code);

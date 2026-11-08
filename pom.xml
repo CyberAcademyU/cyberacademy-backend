@@ -27,6 +27,16 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
+		<!-- Métricas técnicas para Grafana Cloud mediante OTLP/HTTPS -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-otlp</artifactId>
+		</dependency>
+
 		<!-- Seguridad & Autenticación -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

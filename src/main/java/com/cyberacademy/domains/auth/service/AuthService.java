@@ -8,8 +8,10 @@ import com.cyberacademy.domains.auth.repository.EmailOtpRepository;
 import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.security.JwtService;
+import com.cyberacademy.security.OtpProtectionService;
 import com.cyberacademy.security.PasswordService;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,8 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.util.Date;
@@ -38,6 +38,7 @@ public class AuthService {
     private final RevokedTokenRepository revokedTokenRepository;
     private final RateLimitService rateLimitService;
     private final PasswordService passwordService;
+    private final OtpProtectionService otpProtectionService;
     private final JwtService jwtService;
     private final EmailService emailService;
     private final EmailAddressVerifier emailAddressVerifier;
@@ -48,6 +49,7 @@ public class AuthService {
                        RevokedTokenRepository revokedTokenRepository,
                        RateLimitService rateLimitService,
                        PasswordService passwordService,
+                       OtpProtectionService otpProtectionService,
                        JwtService jwtService,
                        EmailService emailService,
                        EmailAddressVerifier emailAddressVerifier) {
@@ -56,6 +58,7 @@ public class AuthService {
         this.revokedTokenRepository = revokedTokenRepository;
         this.rateLimitService = rateLimitService;
         this.passwordService = passwordService;
+        this.otpProtectionService = otpProtectionService;
         this.jwtService = jwtService;
         this.emailService = emailService;
         this.emailAddressVerifier = emailAddressVerifier;
@@ -66,9 +69,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar abusos en el registro
-        if (!rateLimitService.isAllowed("register:" + email)) {
-            return ApiResponse.error("Demasiados intentos de registro. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("register:" + email);
 
         // 0. Validar que el dominio del correo exista y pueda recibir mensajes
         //    (evita enviar el OTP a dominios mal escritos, que provocan rebotes)
@@ -82,8 +83,8 @@ public class AuthService {
             return ApiResponse.error("Este correo electrónico ya está registrado");
         }
 
-        // 2. Hashear la contraseña con Argon2id (OWASP)
-        String hashedPassword = passwordService.hashPassword(request.getPassword());
+        // La contraseña definitiva la establece quien controla el correo al verificarlo.
+        String hashedPassword = passwordService.hashPassword(UUID.randomUUID().toString());
 
         // 3. Crear usuario con rol STUDENT obligatorio y pendiente de verificación
         User user = new User();
@@ -103,7 +104,7 @@ public class AuthService {
         EmailOtp otp = new EmailOtp();
         otp.setUserId(savedUser.getId());
         otp.setEmail(email);
-        otp.setOtpCode(code);
+        otp.setOtpHash(otpProtectionService.protect(savedUser.getId(), code));
         otp.setType(OtpType.EMAIL_VERIFICATION);
         otp.setExpiresAt(OffsetDateTime.now().plusMinutes(15));
         otp.setAttempts(0);
@@ -126,14 +127,14 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar fuerza bruta en el código OTP
-        if (!rateLimitService.isAllowed("verify-otp:" + email)) {
-            return ApiResponse.error("Demasiados intentos de verificación. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("verify-otp:" + email);
 
         // El bloqueo del usuario serializa la verificación y el reenvío, incluso
         // cuando aún no existe una fila OTP que pueda bloquearse.
         var userOptional = userRepository.findLockedByEmailIgnoreCase(email);
-        if (userOptional.isEmpty()) {
+        if (userOptional.isEmpty() || userOptional.get().getStatus() != UserStatus.PENDING_VERIFICATION
+                || userOptional.get().isEmailVerified()
+                || !userOptional.get().getCreatedAt().plusHours(24).isAfter(OffsetDateTime.now())) {
             return ApiResponse.error("No se encontró ningún código de verificación activo.");
         }
         var otpOptional = otpRepository.findTopByUserIdAndTypeOrderByCreatedAtDescIdDesc(
@@ -152,9 +153,7 @@ public class AuthService {
         }
 
         // Validar intentos (comparación en tiempo constante para evitar timing attacks)
-        if (!MessageDigest.isEqual(
-                otp.getOtpCode().getBytes(StandardCharsets.UTF_8),
-                request.getOtpCode().trim().getBytes(StandardCharsets.UTF_8))) {
+        if (!otpProtectionService.matches(userOptional.get().getId(), request.getOtpCode().trim(), otp.getOtpHash())) {
             otp.setAttempts(otp.getAttempts() + 1);
             if (otp.getAttempts() >= otp.getMaxAttempts()) {
                 otp.setUsed(true); // Invalidar por exceso de intentos
@@ -171,6 +170,7 @@ public class AuthService {
 
         // Activar al usuario en la base de datos
         User user = userOptional.get();
+        user.setPasswordHash(passwordService.hashPassword(request.getPassword()));
         user.setEmailVerified(true);
         user.setEmailVerifiedAt(OffsetDateTime.now());
         user.setStatus(UserStatus.ACTIVE);
@@ -184,9 +184,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar abuso en el reenvío de OTP
-        if (!rateLimitService.isAllowed("resend-otp:" + email)) {
-            return ApiResponse.error("Demasiados solicitudes de reenvío. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("resend-otp:" + email);
 
         EmailAddressVerifier.Result emailCheck = emailAddressVerifier.verify(email);
         if (!emailCheck.valid()) {
@@ -194,7 +192,9 @@ public class AuthService {
         }
 
         var userOptional = userRepository.findLockedByEmailIgnoreCase(email);
-        if (userOptional.isEmpty() || userOptional.get().isEmailVerified()) {
+        if (userOptional.isEmpty() || userOptional.get().isEmailVerified()
+                || userOptional.get().getStatus() != UserStatus.PENDING_VERIFICATION
+                || !userOptional.get().getCreatedAt().plusHours(24).isAfter(OffsetDateTime.now())) {
             log.info("Reenvío OTP omitido para [{}]: {}", email,
                     userOptional.isEmpty() ? "usuario inexistente" : "usuario verificado");
             return ApiResponse.ok("Si la cuenta requiere verificación, se enviará un código.", null);
@@ -209,7 +209,7 @@ public class AuthService {
         EmailOtp otp = new EmailOtp();
         otp.setUserId(user.getId());
         otp.setEmail(email);
-        otp.setOtpCode(code);
+        otp.setOtpHash(otpProtectionService.protect(user.getId(), code));
         otp.setType(OtpType.EMAIL_VERIFICATION);
         otp.setExpiresAt(OffsetDateTime.now().plusMinutes(15));
         otpRepository.save(otp);
@@ -226,9 +226,7 @@ public class AuthService {
         String email = request.getEmail().trim().toLowerCase();
 
         // Rate limiting por correo para evitar fuerza bruta en el inicio de sesión
-        if (!rateLimitService.isAllowed("login:" + email)) {
-            return ApiResponse.error("Demasiados intentos de inicio de sesión. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("login:" + email);
 
         var userOptional = userRepository.findByEmailIgnoreCase(email);
         if (userOptional.isEmpty()) {
@@ -288,19 +286,24 @@ public class AuthService {
      */
     @Transactional
     public void revokeToken(String token) {
+        Claims claims;
+        UUID userId;
         try {
-            Claims claims = jwtService.getClaimsFromToken(token);
-            String jti = claims.getId();
-            UUID userId = UUID.fromString(claims.getSubject());
-            Date expiration = claims.getExpiration();
-            OffsetDateTime expiresAt = expiration.toInstant()
-                    .atZone(java.time.ZoneOffset.UTC)
-                    .toOffsetDateTime();
-
-            RevokedToken revoked = new RevokedToken(jti, userId, expiresAt);
-            revokedTokenRepository.save(revoked);
-        } catch (Exception e) {
+            claims = jwtService.getClaimsFromToken(token);
+            if (claims.getId() == null || claims.getId().isBlank()
+                    || claims.getSubject() == null || claims.getExpiration() == null) {
+                return;
+            }
+            userId = UUID.fromString(claims.getSubject());
+        } catch (JwtException | IllegalArgumentException e) {
             // Token inválido o ya expirado: no hay nada que revocar
+            return;
         }
+
+        Date expiration = claims.getExpiration();
+        OffsetDateTime expiresAt = expiration.toInstant()
+                .atZone(java.time.ZoneOffset.UTC)
+                .toOffsetDateTime();
+        revokedTokenRepository.save(new RevokedToken(claims.getId(), userId, expiresAt));
     }
 }

@@ -82,9 +82,7 @@ public class ProfileService {
     public void changeMyPassword(ChangePasswordRequest request, String currentToken) {
         User user = currentUserProvider.requireCurrentUser();
 
-        if (!rateLimitService.isAllowed("password-change:" + user.getId())) {
-            throw new BadRequestException("Demasiados intentos. Intenta nuevamente en 15 minutos.");
-        }
+        rateLimitService.check("password-change:" + user.getId());
         if (!passwordService.verifyPassword(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new BadRequestException("La contraseña actual no es correcta");
         }

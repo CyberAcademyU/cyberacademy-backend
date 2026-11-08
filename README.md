@@ -61,6 +61,10 @@ Ese archivo está en `.gitignore`. En producción, usa variables de entorno:
 | `MAIL_FROM` | remitente visible |
 | `CORS_ALLOWED_ORIGINS` | orígenes permitidos, separados por comas |
 | `SPRING_PROFILES_ACTIVE` | `prod` en producción |
+| `MAIL_TRANSPORT` | `gmail-api` para enviar por HTTPS; `smtp` por defecto |
+| `GMAIL_CLIENT_ID` | ID del cliente OAuth de Google para Gmail API |
+| `GMAIL_CLIENT_SECRET` | secreto del cliente OAuth de Google |
+| `GMAIL_REFRESH_TOKEN` | token de actualización autorizado con el permiso `gmail.send` |
 
 ### Secretos y archivos locales
 
@@ -100,6 +104,71 @@ En GitHub abre un Pull Request con **base `develop`** y como origen tu rama. Esp
 
 ## Ejecutar
 
+Para habilitar imágenes y video en las teorías, aplica una sola vez `src/main/resources/db/migration/V9__theory_media.sql` en la base de datos del entorno correspondiente antes de arrancar esta versión. Flyway está desactivado en la configuración actual, por lo que no se ejecuta automáticamente. La migración agrega tres columnas opcionales; no incluye enlaces ni archivos multimedia.
+
+### Despliegue de prueba en Render
+
+Para desplegar la protección de OTP, aplica primero `V10__protect_email_verification_codes.sql`
+en la base de datos del entorno y despliega inmediatamente el backend nuevo. Los códigos
+de verificación antiguos se invalidan: sus usuarios deberán solicitar un nuevo código.
+La protección usa `JWT_SECRET` con separación de propósito; cambiar ese secreto también
+invalida los códigos pendientes. Coordina una ventana de mantenimiento para evitar que
+la versión anterior genere códigos en claro entre la migración y el despliegue.
+
+El registro requiere un frontend actualizado: primero se confirma el correo y se envía
+un código; la contraseña definitiva se establece al verificar ese código. El backend
+rechaza la verificación sin contraseña. Las cuentas pendientes no verificadas caducan
+a las 24 horas y se eliminan con sus OTP mediante una tarea que se ejecuta cada hora;
+las cuentas pendientes anteriores también están sujetas a esta limpieza. La verificación
+y el reenvío se rechazan una vez vencido el plazo. Tras la eliminación se puede volver
+a registrar el mismo correo. Despliega frontend y backend coordinadamente: el cliente
+anterior no puede completar la verificación con el contrato nuevo.
+
+El `Dockerfile` compila el backend con Java 21 y crea una imagen sin Maven. Crea un **Web Service** en Render conectado a este repositorio y selecciona **Docker**. El servicio escucha en el puerto 8080.
+
+Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
+
+Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío por SMTP no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
+
+Para enviar códigos desde Render Free, configura `MAIL_TRANSPORT=gmail-api`, las tres
+variables OAuth `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` y `GMAIL_REFRESH_TOKEN`, y
+`MAIL_FROM` con la dirección Gmail autorizada. El backend solicita un token de acceso
+para cada envío y utiliza la API de Gmail por HTTPS. También se utiliza para recuperación
+de contraseña. No registres ni compartas las credenciales; introdúcelas directamente
+en las variables de entorno de Render. La entrega real depende de la autorización y de
+los límites de Google. En aplicaciones OAuth externas en modo de prueba, los refresh
+tokens con el permiso Gmail pueden vencer a los siete días: esta configuración requiere
+renovación y no ofrece envío continuo sin resolver la publicación de OAuth.
+
+### Métricas en Grafana Cloud
+
+La exportación de métricas técnicas mediante Micrometer y OTLP/HTTP está **desactivada
+por defecto**. No hace públicos endpoints de Actuator. Para una prueba en Render Free:
+
+1. En el portal de Grafana Cloud, abre tu stack y selecciona **OpenTelemetry → Configure**.
+   Genera una credencial con permiso de escritura de métricas y obtén el endpoint OTLP.
+2. En las variables de entorno del servicio backend de Render configura:
+   - `GRAFANA_METRICS_ENABLED=true`
+   - `GRAFANA_OTLP_METRICS_URL`: URL OTLP de tu stack **incluyendo `/v1/metrics`**.
+     Si Grafana muestra una URL base terminada en `/otlp`, añade `/v1/metrics`.
+   - `GRAFANA_OTLP_AUTHORIZATION`: valor completo de la cabecera HTTP de autorización,
+     por ejemplo `Basic <credencial-codificada>`. Si el asistente muestra
+     `Authorization=Basic%20...`, copia el valor posterior a `Authorization=` y
+     reemplaza `%20` por un espacio. No copies el prefijo `Authorization=`.
+3. Guarda y despliega el servicio. No incluyas estos valores en Git ni los compartas.
+4. En Grafana, importa `observability/grafana-cyberacademy.json` desde **Dashboards →
+   New → Import** y selecciona la fuente de datos Prometheus/Mimir de Grafana Cloud.
+5. Genera tráfico normal y espera al menos dos intervalos de exportación (60 segundos
+   cada uno) para ver las tasas. Las series 429/5xx aparecerán cuando ocurran esos estados.
+
+La aplicación envía métricas agregadas (por ejemplo, métodos, rutas de API, estados,
+latencia y memoria JVM), no el cuerpo de peticiones, contraseñas, códigos OTP ni tokens.
+Esta configuración no envía logs ni trazas. En Render Free, al suspenderse la instancia
+no se exportan datos; un hueco en el panel no identifica por sí solo la causa y las
+métricas en memoria se reinician. Consulta los límites vigentes de tu plan Grafana
+Cloud. El panel es una plantilla inicial y sus consultas deben comprobarse con las
+series que reciba tu stack.
+
 ```bash
 mvn spring-boot:run
 ```
@@ -137,11 +206,21 @@ Base: `/api/v1`
 
 ## Módulos y progreso
 
+El catálogo público de `/public/modules` se guarda en una caché local acotada durante
+un máximo de 60 segundos para evitar repetir las consultas a módulos y secciones. Al
+confirmar la creación o edición de módulos o sus secciones, la instancia invalida la
+caché; una transacción revertida no la invalida. El navegador debe revalidar la
+respuesta para no conservar durante cinco minutos un catálogo editado. Los cambios
+directos en la base de datos o en otras instancias se reflejan al vencer el plazo.
+La caché se pierde al reiniciar Render y no incluye cuentas, sesiones ni progreso de
+estudiantes. Esta optimización reduce consultas repetidas, pero no evita el tiempo de
+arranque de Render Free ni acelera todas las rutas de la API.
+
 Cada módulo tiene **3 sesiones de teoría y 1 de práctica**, generadas automáticamente por un trigger al crear el módulo.
 
 Flujo del estudiante:
 
-1. Lee la **Teoría 1** y responde su pregunta de comprensión. Si acierta, la sesión queda completada y se desbloquea la **Teoría 2**; después la **3**.
+1. Lee la **Teoría 1** y responde su pregunta de comprensión: con una respuesta correcta o incorrecta la sesión queda completada y se desbloquea la siguiente (si falla, se muestra la opción correcta); después la **3**.
 2. Las sesiones completadas quedan bloqueadas: no se puede volver atrás ni saltar el orden.
 3. Al completar las 3 teorías se desbloquea la **Práctica**, un cuestionario con las preguntas que definió el administrador.
 4. La práctica tiene **un solo intento**. El backend la corrige (`aciertos / total × 100`), guarda la nota y bloquea todas las sesiones.
@@ -221,5 +300,6 @@ src/main/resources
 - Contraseñas con **Argon2id** (parámetros OWASP: 64 MB, 3 iteraciones).
 - JWT firmado con HMAC-SHA, expiración 60 min.
 - Bloqueo temporal de cuenta tras 5 intentos fallidos.
+- El limitador de autenticación responde con HTTP 429 y `Retry-After` en segundos al superar el límite por operación y correo/usuario o dirección de conexión. También se aplica a recuperación y cambio de contraseña. Es local a cada instancia: se reinicia al reiniciar el servicio; detrás de un proxy, `getRemoteAddr()` puede corresponder al proxy y agrupar usuarios. Comprueba la configuración de red antes de depender del límite por IP.
 - OTP de 6 dígitos, 15 min de validez, máximo 5 intentos, un solo uso.
 - Nunca se registran códigos OTP ni contraseñas en los logs.

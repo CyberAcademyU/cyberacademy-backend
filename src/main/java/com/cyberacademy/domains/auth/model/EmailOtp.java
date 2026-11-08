@@ -21,8 +21,8 @@ public class EmailOtp {
     @Column(nullable = false, length = 255)
     private String email;
 
-    @Column(name = "otp_code", nullable = false, length = 6)
-    private String otpCode;
+    @Column(name = "otp_code", nullable = false, length = 64)
+    private String otpHash;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM) // ENUM nativo de PostgreSQL (otp_type)
@@ -55,8 +55,8 @@ public class EmailOtp {
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
 
-    public String getOtpCode() { return otpCode; }
-    public void setOtpCode(String otpCode) { this.otpCode = otpCode; }
+    public String getOtpHash() { return otpHash; }
+    public void setOtpHash(String otpHash) { this.otpHash = otpHash; }
 
     public OtpType getType() { return type; }
     public void setType(OtpType type) { this.type = type; }

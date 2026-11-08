@@ -36,7 +36,7 @@ public class PasswordResetService {
     @Transactional
     public void request(String address) {
         String normalized = address.strip().toLowerCase(Locale.ROOT);
-        if (!limits.isAllowed("reset-request:" + normalized)) return;
+        limits.check("reset-request:" + normalized);
         var user = users.findLockedByEmailIgnoreCase(normalized).orElse(null);
         if (user == null || user.getStatus() != UserStatus.ACTIVE || !user.isEmailVerified()) return;
         String code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
@@ -59,7 +59,7 @@ public class PasswordResetService {
     @Transactional
     public boolean confirm(String address, String code, String newPassword) {
         String normalized = address.strip().toLowerCase(Locale.ROOT);
-        if (!limits.isAllowed("reset-confirm:" + normalized)) return false;
+        limits.check("reset-confirm:" + normalized);
         var user = users.findLockedByEmailIgnoreCase(normalized).orElse(null);
         if (user == null || user.getStatus() != UserStatus.ACTIVE || !user.isEmailVerified()) return false;
         var reset = codes.findById(user.getId()).orElse(null);

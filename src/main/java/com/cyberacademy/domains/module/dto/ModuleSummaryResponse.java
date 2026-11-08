@@ -28,6 +28,7 @@ public record ModuleSummaryResponse(
         OffsetDateTime completedAt,
         OffsetDateTime lastActivityAt,
         boolean saved,
+        boolean locked,
         /** Intentos usados en la práctica y máximo permitido (el admin puede reanudarlos). */
         int practiceAttempts,
         int maxPracticeAttempts

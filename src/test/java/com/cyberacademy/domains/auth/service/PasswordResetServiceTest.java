@@ -33,7 +33,6 @@ class PasswordResetServiceTest {
         reset.setCodeHash("hash");
         reset.setCreatedAt(OffsetDateTime.now());
         reset.setExpiresAt(OffsetDateTime.now().plusMinutes(15));
-        when(limits.isAllowed(anyString())).thenReturn(true);
     }
 
     @Test void nonexistentAccountDoesNotSendMail() {

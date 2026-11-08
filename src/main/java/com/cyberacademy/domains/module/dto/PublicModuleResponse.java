@@ -15,4 +15,8 @@ public record PublicModuleResponse(
         int orderIndex,
         BigDecimal passingScore,
         List<String> topics
-) {}
+) {
+    public PublicModuleResponse {
+        topics = List.copyOf(topics);
+    }
+}
