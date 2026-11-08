@@ -345,7 +345,16 @@ public class ModuleService {
 
         boolean saved = savedModuleRepository.existsByUserIdAndModuleId(student.getId(), moduleId);
         return new ModuleProgressResponse(toSummary(module, sections, progress, items, saved, false),
-                toSectionProgress(sections, items, module.getPassingScore()));
+                toSectionProgress(sections, items, module.getPassingScore(), questionCountsFor(sections)));
+    }
+
+    /** Nº de preguntas de cada sección en una sola consulta (en vez de 1 count por sección). */
+    private Map<UUID, Long> questionCountsFor(List<ModuleSection> sections) {
+        if (sections.isEmpty()) return Map.of();
+        List<UUID> ids = sections.stream().map(ModuleSection::getId).toList();
+        return questionRepository.countsBySectionIds(ids).stream()
+                .collect(Collectors.toMap(SectionQuestionRepository.SectionIdCount::getSectionId,
+                        SectionQuestionRepository.SectionIdCount::getTotal));
     }
 
     private ModuleSummaryResponse toSummary(CourseModule module,
@@ -431,7 +440,8 @@ public class ModuleService {
 
     private List<SectionProgressResponse> toSectionProgress(List<ModuleSection> sections,
                                                             List<StudentSectionProgress> items,
-                                                            BigDecimal passingScore) {
+                                                            BigDecimal passingScore,
+                                                            Map<UUID, Long> questionCounts) {
         Map<UUID, StudentSectionProgress> bySection = items.stream()
                 .collect(Collectors.toMap(sp -> sp.getSection().getId(), sp -> sp, (a, b) -> a));
 
@@ -467,7 +477,7 @@ public class ModuleService {
                     item == null ? null : item.getCompletedAt(),
                     accessible,
                     locked,
-                    (int) questionRepository.countBySectionId(section.getId())));
+                    (int) questionCounts.getOrDefault(section.getId(), 0L)));
 
             allPreviousCompleted = allPreviousCompleted && completed;
         }

@@ -63,7 +63,7 @@ class RateLimitServiceTest {
         EmailService email = mock(EmailService.class);
         PasswordService passwords = mock(PasswordService.class);
         AuthService auth = new AuthService(users, mock(EmailOtpRepository.class), mock(RevokedTokenRepository.class),
-                limits, passwords, mock(OtpProtectionService.class), mock(JwtService.class), email,
+                mock(RevokedTokenCache.class), limits, passwords, mock(OtpProtectionService.class), mock(JwtService.class), email,
                 mock(EmailAddressVerifier.class));
         PasswordResetService reset = new PasswordResetService(users, mock(PasswordResetCodeRepository.class), passwords, limits, email);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthController(auth, reset))
