@@ -230,6 +230,9 @@ public class AuthService {
 
         var userOptional = userRepository.findByEmailIgnoreCase(email);
         if (userOptional.isEmpty()) {
+            // Anti-enumeración: gastar el mismo coste de Argon2 que haría un usuario
+            // real, para que el tiempo de respuesta no revele si el correo existe.
+            passwordService.verifyAgainstDummy(request.getPassword());
             return ApiResponse.error("Correo o contraseña incorrectos");
         }
 
