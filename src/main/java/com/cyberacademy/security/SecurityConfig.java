@@ -83,6 +83,9 @@ public class SecurityConfig {
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         config.setExposedHeaders(List.of("Retry-After"));
         config.setAllowCredentials(true);
+        // Cachea el preflight (OPTIONS) 1 hora en el navegador. Sin esto, cada petición
+        // con Authorization dispara un OPTIONS extra contra un backend lento.
+        config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

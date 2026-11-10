@@ -22,6 +22,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByDisplayNameIgnoreCaseAndIdNot(String displayName, UUID id);
 
+    /**
+     * Usuario de la sesión, solo si su token no está revocado.
+     * Sustituye a existsByJti() + findById(): una consulta en lugar de dos por petición.
+     */
+    @Query("""
+            select u from User u
+            where u.id = :id
+              and not exists (select 1 from RevokedToken r where r.jti = :jti)
+            """)
+    Optional<User> findSessionUser(@Param("id") UUID id, @Param("jti") String jti);
+
     @Modifying
     @Query("delete from User u where u.status = :status and u.emailVerified = false and u.createdAt < :cutoff")
     int deleteExpiredPending(@Param("status") UserStatus status, @Param("cutoff") OffsetDateTime cutoff);
