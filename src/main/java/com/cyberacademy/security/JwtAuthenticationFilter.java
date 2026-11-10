@@ -1,9 +1,9 @@
 package com.cyberacademy.security;
 
-import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
-import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.auth.model.UserStatus;
+import com.cyberacademy.domains.auth.repository.UserRepository;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,14 +27,10 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ordered {
 
     private final JwtService jwtService;
-    private final RevokedTokenRepository revokedTokenRepository;
     private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService,
-                                   RevokedTokenRepository revokedTokenRepository,
-                                   UserRepository userRepository) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
         this.jwtService = jwtService;
-        this.revokedTokenRepository = revokedTokenRepository;
         this.userRepository = userRepository;
     }
 
@@ -44,20 +40,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            if (jwtService.validateToken(token)) {
-                // Rechazar si el token ha sido revocado (logout, suspensión, cambio de rol, etc.)
-                String jti = jwtService.getJtiFromToken(token);
-                if (revokedTokenRepository.existsByJti(jti)) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.getWriter().write("{\"error\":\"Token revocado. Inicie sesión nuevamente.\"}");
-                    response.setContentType("application/json");
-                    return;
-                }
+            Claims claims;
+            try {
+                // Una sola verificación de firma y expiración por petición
+                // (antes se parseaba el token tres veces).
+                claims = jwtService.getClaimsFromToken(token);
+            } catch (JwtException | IllegalArgumentException ex) {
+                claims = null;
+            }
 
-                Claims claims = jwtService.getClaimsFromToken(token);
+            if (claims != null && claims.getSubject() != null) {
                 com.cyberacademy.domains.auth.model.User currentUser;
                 try {
-                    currentUser = userRepository.findById(UUID.fromString(claims.getSubject())).orElse(null);
+                    UUID userId = UUID.fromString(claims.getSubject());
+                    // Usuario + revocación del token en una única consulta
+                    // (antes eran existsByJti() + findById(), dos round-trips a la BD).
+                    currentUser = userRepository.findSessionUser(userId, claims.getId()).orElse(null);
                 } catch (IllegalArgumentException | NullPointerException ex) {
                     currentUser = null;
                 }
