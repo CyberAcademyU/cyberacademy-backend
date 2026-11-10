@@ -61,6 +61,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
+                // Health check de Render. Público pero sin detalles
+                // (management.endpoint.health.show-details=never).
+                .requestMatchers("/actuator/health").permitAll()
                 // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // Cualquier otra requiere autenticación
