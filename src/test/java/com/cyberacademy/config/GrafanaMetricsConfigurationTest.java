@@ -31,11 +31,14 @@ class GrafanaMetricsConfigurationTest {
             .withConfiguration(AutoConfigurations.of(MetricsAutoConfiguration.class, OtlpMetricsExportAutoConfiguration.class));
 
     @Test
-    void exportAndManagementEndpointsAreDisabledByDefault() {
+    void onlyHealthEndpointIsExposedByDefault() {
         runner.run(context -> {
             assertThat(context).doesNotHaveBean(OtlpMeterRegistry.class);
             assertThat(context.getEnvironment().getProperty("management.endpoints.enabled-by-default")).isEqualTo("false");
-            assertThat(context.getEnvironment().getProperty("management.endpoints.web.exposure.exclude")).isEqualTo("*");
+            // Solo health (sin detalles) para el health check de Render; metrics sigue en 404.
+            assertThat(context.getEnvironment().getProperty("management.endpoints.web.exposure.include")).isEqualTo("health");
+            assertThat(context.getEnvironment().getProperty("management.endpoints.web.exposure.exclude")).isNull();
+            assertThat(context.getEnvironment().getProperty("management.endpoint.health.show-details")).isEqualTo("never");
         });
     }
 
