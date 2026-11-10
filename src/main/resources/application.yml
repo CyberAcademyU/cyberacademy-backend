@@ -1,5 +1,9 @@
 server:
   port: 8080
+  # Detrás de Render/Cloudflare la IP del cliente llega en X-Forwarded-For.
+  # Sin esto, getRemoteAddr() devuelve la IP del proxy y RateLimitService aplica
+  # un único límite global de 50 intentos/15 min a todos los usuarios a la vez.
+  forward-headers-strategy: framework
   servlet:
     context-path: /api/v1 # Todas las rutas iniciarán con /api/v1
 
