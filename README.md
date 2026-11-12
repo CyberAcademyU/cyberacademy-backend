@@ -132,8 +132,10 @@ Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/
 
 Para enviar códigos desde Render Free, configura `MAIL_TRANSPORT=gmail-api`, las tres
 variables OAuth `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` y `GMAIL_REFRESH_TOKEN`, y
-`MAIL_FROM` con la dirección Gmail autorizada. El backend solicita un token de acceso
-para cada envío y utiliza la API de Gmail por HTTPS. También se utiliza para recuperación
+`MAIL_FROM` con la dirección Gmail autorizada. El backend reutiliza en memoria el token de acceso
+hasta 60 segundos antes de su caducidad y utiliza la API de Gmail por HTTPS. Si Google
+rechaza el token con HTTP 401, se invalida para el siguiente envío, sin reenviar
+automáticamente el correo. También se utiliza para recuperación
 de contraseña. No registres ni compartas las credenciales; introdúcelas directamente
 en las variables de entorno de Render. La entrega real depende de la autorización y de
 los límites de Google. En aplicaciones OAuth externas en modo de prueba, los refresh

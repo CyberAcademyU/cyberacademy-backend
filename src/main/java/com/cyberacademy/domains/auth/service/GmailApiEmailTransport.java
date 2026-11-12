@@ -21,6 +21,8 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +41,9 @@ public class GmailApiEmailTransport implements EmailTransport {
     private final String clientId;
     private final String clientSecret;
     private final String refreshToken;
+    private final Clock clock;
+    private String cachedAccessToken;
+    private Instant refreshAt = Instant.MIN;
 
     @Autowired
     public GmailApiEmailTransport(RestClient.Builder builder,
@@ -49,10 +54,15 @@ public class GmailApiEmailTransport implements EmailTransport {
     }
 
     GmailApiEmailTransport(RestClient client, String clientId, String clientSecret, String refreshToken) {
+        this(client, clientId, clientSecret, refreshToken, Clock.systemUTC());
+    }
+
+    GmailApiEmailTransport(RestClient client, String clientId, String clientSecret, String refreshToken, Clock clock) {
         this.client = client;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.refreshToken = refreshToken;
+        this.clock = clock;
     }
 
     private static RestClient createClient(RestClient.Builder builder) {
@@ -71,6 +81,27 @@ public class GmailApiEmailTransport implements EmailTransport {
                     refreshToken.isBlank() ? "ausente" : "presente");
             throw new EmailDeliveryException("El servicio de correo no está configurado correctamente.");
         }
+        String accessToken = accessToken();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        message.writeTo(bytes);
+        String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.toByteArray());
+        try {
+            client.post().uri("https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
+                    .headers(headers -> headers.setBearerAuth(accessToken))
+                    .contentType(MediaType.APPLICATION_JSON).body(Map.of("raw", raw))
+                    .retrieve().toBodilessEntity();
+        } catch (RestClientException e) {
+            if (e instanceof RestClientResponseException response && response.getStatusCode().value() == 401) {
+                invalidateAccessToken(accessToken);
+            }
+            throw deliveryFailure("envio_mensaje", e);
+        }
+    }
+
+    // Una sola renovación concurrente; el envío de mensajes no mantiene este bloqueo.
+    private synchronized String accessToken() {
+        Instant now = clock.instant();
+        if (cachedAccessToken != null && now.isBefore(refreshAt)) return cachedAccessToken;
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("client_id", clientId);
         form.add("client_secret", clientSecret);
@@ -88,16 +119,17 @@ public class GmailApiEmailTransport implements EmailTransport {
             log.error("Gmail API: etapa=renovacion_token, respuesta_sin_token");
             throw new EmailDeliveryException("No se pudo autorizar el servicio de correo.");
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        message.writeTo(bytes);
-        String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes.toByteArray());
-        try {
-            client.post().uri("https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
-                    .headers(headers -> headers.setBearerAuth(token.access_token()))
-                    .contentType(MediaType.APPLICATION_JSON).body(Map.of("raw", raw))
-                    .retrieve().toBodilessEntity();
-        } catch (RestClientException e) {
-            throw deliveryFailure("envio_mensaje", e);
+        cachedAccessToken = token.access_token();
+        // Sin expires_in no se asume una validez. Margen de 60 s para latencia/desfase.
+        long lifetime = token.expires_in() == null ? 0 : Math.max(0, token.expires_in() - 60);
+        refreshAt = now.plusSeconds(lifetime);
+        return cachedAccessToken;
+    }
+
+    private synchronized void invalidateAccessToken(String rejectedToken) {
+        if (rejectedToken.equals(cachedAccessToken)) {
+            cachedAccessToken = null;
+            refreshAt = Instant.MIN;
         }
     }
 
@@ -121,5 +153,5 @@ public class GmailApiEmailTransport implements EmailTransport {
         }
     }
 
-    private record TokenResponse(String access_token) {}
+    private record TokenResponse(String access_token, Long expires_in) {}
 }

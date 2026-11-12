@@ -15,6 +15,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -22,8 +24,61 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
+import static org.mockito.Mockito.*;
 
 class GmailApiEmailTransportTest {
+    @Test
+    void reusesTokenAndRefreshesBeforeExpiry() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        Clock clock = mock(Clock.class);
+        Instant start = Instant.parse("2026-11-12T00:00:00Z");
+        when(clock.instant()).thenReturn(start);
+        GmailApiEmailTransport transport = new GmailApiEmailTransport(builder.build(), "client", "secret", "refresh", clock);
+        server.expect(requestTo("https://oauth2.googleapis.com/token"))
+                .andRespond(withSuccess("{\"access_token\":\"first\",\"expires_in\":3600}", MediaType.APPLICATION_JSON));
+        server.expect(org.springframework.test.web.client.ExpectedCount.times(2),
+                        requestTo("https://gmail.googleapis.com/gmail/v1/users/me/messages/send"))
+                .andExpect(header("Authorization", "Bearer first"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://oauth2.googleapis.com/token"))
+                .andRespond(withSuccess("{\"access_token\":\"second\",\"expires_in\":3600}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://gmail.googleapis.com/gmail/v1/users/me/messages/send"))
+                .andExpect(header("Authorization", "Bearer second"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        MimeMessage message = new MimeMessage(Session.getInstance(new Properties()));
+        message.setText("test");
+        message.saveChanges();
+        transport.send(message);
+        when(clock.instant()).thenReturn(start.plusSeconds(3539));
+        transport.send(message);
+        when(clock.instant()).thenReturn(start.plusSeconds(3540));
+        transport.send(message);
+        server.verify();
+    }
+
+    @Test
+    void rejectedTokenIsInvalidatedWithoutRetryingTheEmail() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GmailApiEmailTransport transport = new GmailApiEmailTransport(builder.build(), "client", "secret", "refresh");
+        server.expect(requestTo("https://oauth2.googleapis.com/token"))
+                .andRespond(withSuccess("{\"access_token\":\"rejected\",\"expires_in\":3600}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://gmail.googleapis.com/gmail/v1/users/me/messages/send"))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED));
+        server.expect(requestTo("https://oauth2.googleapis.com/token"))
+                .andRespond(withSuccess("{\"access_token\":\"new\",\"expires_in\":3600}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://gmail.googleapis.com/gmail/v1/users/me/messages/send"))
+                .andExpect(header("Authorization", "Bearer new"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        MimeMessage message = new MimeMessage(Session.getInstance(new Properties()));
+        message.setText("test");
+        message.saveChanges();
+        assertThrows(EmailDeliveryException.class, () -> transport.send(message));
+        transport.send(message);
+        server.verify();
+    }
+
     @Test
     void exchangesRefreshTokenAndSendsEncodedMessage() throws Exception {
         RestClient.Builder builder = RestClient.builder();
