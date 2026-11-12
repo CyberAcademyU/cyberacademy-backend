@@ -1,0 +1,49 @@
+name: Mantener despierto el backend
+
+# Render suspende un servicio Free tras 15 minutos sin tráfico entrante.
+# Este ping cada 10 minutos renueva ese temporizador. El margen de 5 minutos
+# absorbe los retrasos habituales de las ejecuciones programadas de GitHub.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# Solo se ejecuta un ping a la vez; si el anterior sigue esperando el arranque,
+# no se lanzan ejecuciones duplicadas.
+concurrency:
+  group: render-keep-alive
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  ping:
+    name: ping
+    runs-on: ubuntu-latest
+    # El arranque medido del backend ronda los 3 minutos. Dos intentos de hasta
+    # 4 minutos (más la pausa) caben en este tope sin cortar un cold start.
+    timeout-minutes: 10
+    steps:
+      - name: Comprobar el health check
+        env:
+          # Health sin detalles y sin consultar la base de datos: despierta la
+          # instancia con el mínimo trabajo posible.
+          HEALTH_URL: https://cyberacademy-backend-525e.onrender.com/api/v1/actuator/health
+        run: |
+          set -uo pipefail
+
+          for attempt in 1 2; do
+            start=$(date +%s)
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --connect-timeout 10 --max-time 240 "$HEALTH_URL") || code=000
+            elapsed=$(( $(date +%s) - start ))
+
+            echo "Intento ${attempt}: HTTP ${code} en ${elapsed}s"
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "::error::El backend no respondió 200 en ninguno de los intentos. Revisa los logs de Render."
+          exit 1

@@ -142,6 +142,33 @@ los límites de Google. En aplicaciones OAuth externas en modo de prueba, los re
 tokens con el permiso Gmail pueden vencer a los siete días: esta configuración requiere
 renovación y no ofrece envío continuo sin resolver la publicación de OAuth.
 
+### Mantener despierto el servicio en Render Free
+
+Render suspende un servicio Free tras **15 minutos sin tráfico entrante**. El workflow
+`.github/workflows/keep-alive.yml` hace `GET` a `/api/v1/actuator/health` cada 10 minutos,
+lo que renueva ese temporizador y evita el arranque en frío. El health check es público,
+no muestra detalles y no consulta la base de datos, así que el ping no despierta Supabase.
+
+Ten en cuenta estas limitaciones antes de confiar en el ping:
+
+- Cada workspace tiene **750 horas de instancia gratis al mes**. Mantener el servicio
+  despierto 24/7 consume unas 730 horas, casi todo el cupo. Un segundo servicio Free
+  activo superaría el límite y Render suspendería los servicios hasta el mes siguiente.
+- Los horarios de GitHub Actions **solo se ejecutan desde la rama por defecto** (`master`).
+  Si el workflow solo existe en `develop`, el ping no se ejecuta.
+- GitHub puede retrasar las ejecuciones programadas varios minutos bajo carga; el margen
+  de 5 minutos cubre los retrasos habituales, no una caída prolongada de Actions.
+- GitHub desactiva los workflows programados tras **60 días sin actividad** en el
+  repositorio. Tras un periodo largo sin commits, revisa la pestaña **Actions** y
+  reactívalo con **Enable workflow**.
+- El ping no evita la espera de ~3 minutos después de cada despliegue ni tras un fallo
+  de la propia instancia: en esos casos la primera petición sigue pagando el arranque.
+
+Si el workflow no puede ejecutarse (por ejemplo, si no se fusiona a `master`), una
+alternativa equivalente es un monitor externo como cron-job.org o UptimeRobot apuntando
+a la misma URL cada 10–14 minutos. El endpoint `/robots.txt` no sirve: Render lo responde
+sin despertar el servicio.
+
 ### Métricas en Grafana Cloud
 
 La exportación de métricas técnicas mediante Micrometer y OTLP/HTTP está **desactivada
