@@ -42,7 +42,8 @@ class CatalogCacheTest {
     @Test
     void cachesPublicResultsAndExpiresAfterOneMinute() {
         AtomicLong nanos = new AtomicLong();
-        CatalogService service = new CatalogService(modules, sections, nanos::get);
+        TestTransactionManager transactions = new TestTransactionManager();
+        CatalogService service = new CatalogService(modules, sections, transactions, nanos::get);
         when(modules.findByActiveTrueOrderByOrderIndexAsc()).thenReturn(List.of(module("Inicial")), List.of(module("Actualizado")));
         when(sections.findByModuleIdIn(anyList())).thenReturn(List.of());
 
@@ -50,10 +51,12 @@ class CatalogCacheTest {
         assertEquals("Inicial", result.get(0).title());
         assertEquals(result, service.listPublicModules());
         verify(modules, times(1)).findByActiveTrueOrderByOrderIndexAsc();
+        assertEquals(1, transactions.begins, "Un acierto de caché no debe abrir una transacción");
         assertThrows(UnsupportedOperationException.class, result::clear);
         nanos.addAndGet(TimeUnit.SECONDS.toNanos(60));
         assertEquals("Actualizado", service.listPublicModules().get(0).title());
         verify(modules, times(2)).findByActiveTrueOrderByOrderIndexAsc();
+        assertEquals(2, transactions.begins);
     }
 
     @Test
@@ -73,6 +76,7 @@ class CatalogCacheTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(CourseModuleRepository.class, () -> modules);
             context.registerBean(ModuleSectionRepository.class, () -> sections);
+            context.registerBean(PlatformTransactionManager.class, TestTransactionManager::new);
             context.registerBean(CatalogService.class);
             context.registerBean(TransactionalEventListenerFactory.class);
             context.refresh();
@@ -96,7 +100,7 @@ class CatalogCacheTest {
 
     @Test
     void invalidationCannotLeaveAnOldInFlightLoadCached() throws Exception {
-        CatalogService service = new CatalogService(modules, sections);
+        CatalogService service = new CatalogService(modules, sections, new TestTransactionManager());
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         when(modules.findByActiveTrueOrderByOrderIndexAsc()).thenAnswer(inv -> {
@@ -121,8 +125,9 @@ class CatalogCacheTest {
     }
 
     private static class TestTransactionManager extends AbstractPlatformTransactionManager implements PlatformTransactionManager {
+        int begins;
         @Override protected Object doGetTransaction() { return new Object(); }
-        @Override protected void doBegin(Object transaction, TransactionDefinition definition) {}
+        @Override protected void doBegin(Object transaction, TransactionDefinition definition) { begins++; }
         @Override protected void doCommit(DefaultTransactionStatus status) {}
         @Override protected void doRollback(DefaultTransactionStatus status) {}
     }

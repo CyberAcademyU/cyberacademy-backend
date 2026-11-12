@@ -12,7 +12,8 @@ import com.cyberacademy.domains.module.repository.CourseModuleRepository;
 import com.cyberacademy.domains.module.repository.ModuleSectionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -32,22 +33,27 @@ public class CatalogService {
     private final ModuleSectionRepository sectionRepository;
     private final Cache<Long, List<PublicModuleResponse>> publicCatalog;
     private final AtomicLong revision = new AtomicLong();
+    private final TransactionTemplate readTransaction;
 
     @Autowired
-    public CatalogService(CourseModuleRepository moduleRepository, ModuleSectionRepository sectionRepository) {
-        this(moduleRepository, sectionRepository, Ticker.systemTicker());
+    public CatalogService(CourseModuleRepository moduleRepository, ModuleSectionRepository sectionRepository,
+                          PlatformTransactionManager transactionManager) {
+        this(moduleRepository, sectionRepository, transactionManager, Ticker.systemTicker());
     }
 
-    CatalogService(CourseModuleRepository moduleRepository, ModuleSectionRepository sectionRepository, Ticker ticker) {
+    CatalogService(CourseModuleRepository moduleRepository, ModuleSectionRepository sectionRepository,
+                   PlatformTransactionManager transactionManager, Ticker ticker) {
         this.moduleRepository = moduleRepository;
         this.sectionRepository = sectionRepository;
+        this.readTransaction = new TransactionTemplate(transactionManager);
+        this.readTransaction.setReadOnly(true);
         this.publicCatalog = Caffeine.newBuilder().maximumSize(1)
                 .expireAfterWrite(Duration.ofSeconds(60)).ticker(ticker).build();
     }
 
-    @Transactional(readOnly = true)
     public List<PublicModuleResponse> listPublicModules() {
-        return publicCatalog.get(revision.get(), ignored -> loadPublicModules());
+        // Los aciertos de caché no necesitan conexión ni transacción con Supabase.
+        return publicCatalog.get(revision.get(), ignored -> readTransaction.execute(status -> loadPublicModules()));
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
