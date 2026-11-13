@@ -82,6 +82,8 @@ security:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
   mail:
     transport: ${MAIL_TRANSPORT:smtp}
+    resend:
+      api-key: ${RESEND_API_KEY:}
     gmail:
       client-id: ${GMAIL_CLIENT_ID:}
       client-secret: ${GMAIL_CLIENT_SECRET:}
