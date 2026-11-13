@@ -1,4 +1,20 @@
-# CyberAcademy — Backend
+# CyberAcademy - Backend
+
+## Correo OTP con Resend
+
+Registro, reenvío de OTP y recuperación de contraseña usan el mismo transporte.
+Para usar Resend en Render configura:
+
+- `MAIL_TRANSPORT=resend`
+- `RESEND_API_KEY`: API key con permiso de envío del dominio seleccionado.
+- `MAIL_FROM=CyberAcademy <no-reply@tu-dominio-verificado.com>`
+
+Verifica primero el dominio y sus registros DNS en Resend. El remitente de
+prueba `onboarding@resend.dev` solo permite enviar a la dirección de tu cuenta
+de Resend; para enviar a estudiantes necesitas un dominio verificado.
+Guarda las variables y redespliega el backend. No hace falta recompilar la APK.
+No guardes la API key en Git ni en el frontend. Gmail OAuth ya no se utiliza
+cuando `MAIL_TRANSPORT=resend`.
 
 API REST de la plataforma de ciberseguridad **CyberAcademy**. Gestiona registro de estudiantes con verificación por código OTP enviado al correo, autenticación con JWT y control de acceso por roles.
 
