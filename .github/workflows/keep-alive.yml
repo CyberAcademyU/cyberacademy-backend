@@ -28,7 +28,7 @@ jobs:
         env:
           # Health sin detalles y sin consultar la base de datos: despierta la
           # instancia con el mínimo trabajo posible.
-          HEALTH_URL: https://cyberacademy-backend-525e.onrender.com/api/v1/actuator/health
+          HEALTH_URL: https://backend.migueltalavera.site/api/v1/actuator/health
         run: |
           set -uo pipefail
 
