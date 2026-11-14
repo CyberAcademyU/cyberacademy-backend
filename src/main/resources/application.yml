@@ -1,11 +1,30 @@
 server:
   port: 8080
+  # Detrás de Render/Cloudflare la IP del cliente llega en X-Forwarded-For.
+  # Sin esto, getRemoteAddr() devuelve la IP del proxy y RateLimitService aplica
+  # un único límite global de 50 intentos/15 min a todos los usuarios a la vez.
+  forward-headers-strategy: framework
+  # En un deploy, Render envía SIGTERM: esperamos a que terminen las peticiones en vuelo
+  # en lugar de cortarlas (ver spring.lifecycle.timeout-per-shutdown-phase).
+  shutdown: graceful
+  compression:
+    enabled: true
+    # SSE (text/event-stream) queda fuera a propósito: comprimir un stream no aporta nada
+    # y el buffering del compresor retrasaría los heartbeats.
+    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
+    # Respuestas pequeñas no compensan el coste de CPU de comprimir.
+    min-response-size: 2048
   servlet:
     context-path: /api/v1 # Todas las rutas iniciarán con /api/v1
 
 spring:
   application:
     name: cyberacademy-backend
+
+  lifecycle:
+    # Tope de espera del graceful shutdown. Los SSE se cierran antes (ContextClosedEvent),
+    # así que en la práctica el apagado es inmediato.
+    timeout-per-shutdown-phase: 20s
 
   # Si no se activa ningún perfil, se usa "local" (credenciales de desarrollo).
   # En producción ejecutar con: SPRING_PROFILES_ACTIVE=prod y definir las variables de entorno.
@@ -53,6 +72,16 @@ spring:
 
 # Seguridad y Tokens JWT
 security:
+  session:
+    secure: ${SESSION_COOKIE_SECURE:true}
+  # Cifrado híbrido de las contraseñas en el navegador (ECDH P-256 + HKDF + AES-256-GCM).
+  password-transport:
+    # Secreto del que se deriva la clave del servidor. Por defecto reutiliza JWT_SECRET,
+    # de modo que no hace falta una variable nueva ni cambia al reiniciar.
+    secret: ${PASSWORD_TRANSPORT_SECRET:${JWT_SECRET}}
+    # true exige el sobre cifrado y rechaza a los clientes antiguos. Actívalo cuando
+    # el frontend nuevo esté desplegado; si no, el login antiguo seguiría funcionando.
+    require-encryption: ${PASSWORD_TRANSPORT_REQUIRE_ENCRYPTION:false}
   jwt:
     # Obligatoria: se define en application-local.yml (dev) o en la variable JWT_SECRET (prod)
     secret: ${JWT_SECRET}
@@ -63,6 +92,8 @@ security:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
   mail:
     transport: ${MAIL_TRANSPORT:smtp}
+    resend:
+      api-key: ${RESEND_API_KEY:}
     gmail:
       client-id: ${GMAIL_CLIENT_ID:}
       client-secret: ${GMAIL_CLIENT_SECRET:}
@@ -77,10 +108,30 @@ app:
 # Exportación de métricas desactivada hasta configurar Grafana Cloud.
 management:
   endpoints:
+    # Ningún endpoint de actuator se expone salvo los listados abajo.
     enabled-by-default: false
     web:
       exposure:
-        exclude: "*"
+        # Solo health: permite que Render detecte una instancia colgada.
+        # metrics y el resto siguen en 404.
+        include: health
+  endpoint:
+    health:
+      enabled: true
+      # Sin detalles: público pero sin filtrar componentes, versiones ni estado de la BD.
+      show-details: never
+  health:
+    db:
+      # Render reinicia la instancia tras 60 s de health checks fallidos y exige respuesta
+      # en 5 s. Si Supabase no responde, la comprobación de BD tarda hasta 20 s (timeout de
+      # Hikari) y provocaría un bucle de reinicios de una JVM que tarda ~50 s en arrancar.
+      # El health check queda como prueba de que el proceso HTTP sigue vivo; la BD se
+      # comprueba en cada petición real, no aquí.
+      enabled: false
+    mail:
+      # El indicador de correo abre una conexión SMTP real en cada comprobación (5 s de
+      # timeout con Gmail y riesgo de throttling). El health check debe ser local y rápido.
+      enabled: false
   metrics:
     tags:
       application: cyberacademy-backend

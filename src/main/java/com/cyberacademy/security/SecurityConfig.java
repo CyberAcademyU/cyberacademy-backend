@@ -10,11 +10,9 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.header.writers.frameoptions.XFrameOptionsHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -27,17 +25,11 @@ import java.util.List;
 @EnableMethodSecurity // Permite @PreAuthorize en los controladores (p. ej. solo ADMIN)
 public class SecurityConfig {
 
-    private final JwtService jwtService;
-    private final RevokedTokenRepository revokedTokenRepository;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final List<String> allowedOrigins;
 
-    public SecurityConfig(JwtService jwtService,
-                          RevokedTokenRepository revokedTokenRepository,
-                          JwtAuthenticationFilter jwtAuthenticationFilter,
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           @Value("${security.cors.allowed-origins:http://localhost:4200}") String allowedOrigins) {
-        this.jwtService = jwtService;
-        this.revokedTokenRepository = revokedTokenRepository;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         // Se admiten varios orígenes separados por comas en la propiedad del application.yml
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
@@ -49,24 +41,29 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable()) // Stateless JWT
+            .csrf(csrf -> csrf.disable()) // OriginCsrfFilter: Origin exacto + cabecera obligatoria.
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 // El dispatch asíncrono solo reanuda una petición ya autenticada.
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 // Rutas públicas de autenticación
+                .requestMatchers("/auth/me").authenticated()
                 .requestMatchers("/auth/**").permitAll()
                 // Catálogo público (página "Explorar"): solo GET
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
+                // Health check de Render. Público pero sin detalles
+                // (management.endpoint.health.show-details=never).
+                .requestMatchers("/actuator/health").permitAll()
                 // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // Cualquier otra requiere autenticación
                 .anyRequest().authenticated()
             )
             .addFilterBefore(new SecurityHeadersFilter(), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new OriginCsrfFilter(allowedOrigins), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .exceptionHandling(exception -> exception
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
@@ -80,12 +77,22 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(allowedOrigins); // Angular (configurable por CORS_ALLOWED_ORIGINS)
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of("Content-Type", "Accept", "X-Requested-With"));
         config.setExposedHeaders(List.of("Retry-After"));
         config.setAllowCredentials(true);
+        // Cachea el preflight (OPTIONS) 1 hora en el navegador. Sin esto, cada petición
+        // con Authorization dispara un OPTIONS extra contra un backend lento.
+        config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
+    }
+
+    @Bean
+    public org.springframework.boot.web.servlet.FilterRegistrationBean<JwtAuthenticationFilter> sessionFilterRegistration() {
+        var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(jwtAuthenticationFilter);
+        registration.setEnabled(false); // Ejecutar solo dentro de Spring Security, después de CORS.
+        return registration;
     }
 }

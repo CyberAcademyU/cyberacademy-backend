@@ -2,15 +2,15 @@ package com.cyberacademy.domains.module.service;
 
 import com.cyberacademy.domains.auth.model.UserRole;
 import com.cyberacademy.domains.auth.model.UserStatus;
-import com.cyberacademy.domains.auth.repository.RevokedTokenRepository;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.module.dto.ModuleCreatedEvent;
 import com.cyberacademy.domains.module.repository.CourseModuleRepository;
-import com.cyberacademy.security.JwtService;
-import io.jsonwebtoken.Claims;
+import com.cyberacademy.security.SessionService;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -30,43 +30,72 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ModuleStreamService {
     private static final Logger log = LoggerFactory.getLogger(ModuleStreamService.class);
     private static final long TIMEOUT_MS = 30 * 60 * 1000L;
     private static final int MAX_PER_USER = 2;
-    private static final int MAX_CONNECTIONS = 1000;
+    /**
+     * Con 512 MB de RAM, 200 emisores abiertos ya es un límite realista.
+     * Antes eran 1000: una promesa que la instancia no puede cumplir y que,
+     * al superarse, degrada a todos los usuarios a la vez.
+     */
+    private static final int MAX_CONNECTIONS = 200;
+    /**
+     * Cloudflare corta una conexión ociosa a los 100 s, así que 30 s deja margen de sobra.
+     * Antes eran 25 s: un 20 % más de consultas a la base sin ninguna ventaja.
+     */
+    private static final long HEARTBEAT_SECONDS = 30;
+    /** Dos hilos para que una consulta lenta a Supabase no retrase los heartbeats del resto. */
+    private static final int HEARTBEAT_WORKERS = 2;
+
     private final ConcurrentHashMap<SseEmitter, Connection> connections = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService heartbeatScheduler;
+    private final ExecutorService heartbeatWorkers;
+    /** Evita que dos rondas de heartbeat se solapen si la base de datos va lenta. */
+    private final AtomicBoolean heartbeatInProgress = new AtomicBoolean(false);
     private final UserRepository users;
-    private final RevokedTokenRepository revokedTokens;
     private final CourseModuleRepository modules;
-    private final JwtService jwtService;
+    private final SessionService sessions;
     private final TransactionTemplate readNewTransaction;
 
-    private record Connection(UUID userId, String jti, Instant expiresAt, Instant openedAt) {}
+    record Connection(UUID userId, String jti, Instant expiresAt, Instant openedAt) {}
 
-    public ModuleStreamService(UserRepository users, RevokedTokenRepository revokedTokens,
-                               CourseModuleRepository modules, JwtService jwtService,
+    public ModuleStreamService(UserRepository users, CourseModuleRepository modules, SessionService sessions,
                                PlatformTransactionManager transactionManager) {
         this.users = users;
-        this.revokedTokens = revokedTokens;
         this.modules = modules;
-        this.jwtService = jwtService;
+        this.sessions = sessions;
         this.readNewTransaction = new TransactionTemplate(transactionManager);
         this.readNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.readNewTransaction.setReadOnly(true);
-        heartbeat.scheduleWithFixedDelay(this::sendHeartbeats, 25, 25, TimeUnit.SECONDS);
+        this.heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "sse-heartbeat-scheduler");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.heartbeatWorkers = Executors.newFixedThreadPool(HEARTBEAT_WORKERS, runnable -> {
+            Thread thread = new Thread(runnable, "sse-heartbeat-worker");
+            thread.setDaemon(true);
+            return thread;
+        });
+        heartbeatScheduler.scheduleWithFixedDelay(
+                this::sendHeartbeats, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
     }
 
     public SseEmitter connect(String token) {
-        Claims claims = jwtService.getClaimsFromToken(token);
-        UUID userId = UUID.fromString(claims.getSubject());
-        Connection connection = new Connection(userId, claims.getId(), claims.getExpiration().toInstant(), Instant.now());
+        var user = sessions.authenticate(token);
+        if (user == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        UUID userId = user.getId();
+        Connection connection = new Connection(userId, token, Instant.now().plusSeconds(SessionService.ACCESS_SECONDS), Instant.now());
         SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
         List<SseEmitter> replaced = new ArrayList<>();
         synchronized (connections) {
@@ -123,26 +152,63 @@ public class ModuleStreamService {
         });
     }
 
-    private boolean authorized(Connection connection) {
-        return connection.jti() != null && connection.expiresAt().isAfter(Instant.now())
-                && !revokedTokens.existsByJti(connection.jti())
-                && users.findById(connection.userId()).filter(user -> user.getStatus() == UserStatus.ACTIVE
-                    && user.isEmailVerified() && user.getRole() == UserRole.STUDENT).isPresent();
+    /**
+     * Sesión válida para el stream: token vivo, no revocado y usuario ACTIVE, verificado y STUDENT.
+     * Usa la misma consulta que el filtro JWT (usuario + revocación en un solo round-trip);
+     * antes eran dos consultas por conexión y por heartbeat.
+     */
+    boolean authorized(Connection connection) {
+        if (connection.jti() == null || !connection.expiresAt().isAfter(Instant.now())) {
+            return false;
+        }
+        var user = sessions.authenticate(connection.jti());
+        return user != null && user.getId().equals(connection.userId()) && user.getRole() == UserRole.STUDENT
+                && user.getStatus() == UserStatus.ACTIVE && user.isEmailVerified();
     }
 
+    /** Un tick cada 30 s. Los checks se reparten entre 2 workers y nunca se solapan entre ticks. */
     private void sendHeartbeats() {
-        connections.forEach((emitter, connection) -> {
+        if (!heartbeatInProgress.compareAndSet(false, true)) {
+            return; // la ronda anterior sigue viva: no acumulamos trabajo
+        }
+        List<Map.Entry<SseEmitter, Connection>> snapshot = new ArrayList<>(connections.entrySet());
+        if (snapshot.isEmpty()) {
+            heartbeatInProgress.set(false);
+            return;
+        }
+        AtomicInteger pending = new AtomicInteger(snapshot.size());
+        for (Map.Entry<SseEmitter, Connection> entry : snapshot) {
+            Runnable task = () -> {
+                try {
+                    heartbeat(entry.getKey(), entry.getValue());
+                } finally {
+                    if (pending.decrementAndGet() == 0) {
+                        heartbeatInProgress.set(false);
+                    }
+                }
+            };
             try {
-                if (!authorized(connection)) { close(emitter); return; }
-                emitter.send(SseEmitter.event().comment("heartbeat"));
-            } catch (IOException ex) {
-                // El cliente cerró la pestaña: el contenedor ya da la respuesta por terminada.
-                // Llamar a complete() aquí intentaría escribir en ella y generaría otro error.
-                connections.remove(emitter);
-            } catch (RuntimeException ex) {
-                close(emitter);
+                heartbeatWorkers.execute(task);
+            } catch (RejectedExecutionException ex) {
+                // Apagado en curso: liberamos la ronda para no dejar el flag bloqueado.
+                if (pending.decrementAndGet() == 0) {
+                    heartbeatInProgress.set(false);
+                }
             }
-        });
+        }
+    }
+
+    private void heartbeat(SseEmitter emitter, Connection connection) {
+        try {
+            if (!authorized(connection)) { close(emitter); return; }
+            emitter.send(SseEmitter.event().comment("heartbeat"));
+        } catch (IOException ex) {
+            // El cliente cerró la pestaña: el contenedor ya da la respuesta por terminada.
+            // Llamar a complete() aquí intentaría escribir en ella y generaría otro error.
+            connections.remove(emitter);
+        } catch (RuntimeException ex) {
+            close(emitter);
+        }
     }
 
     private void close(SseEmitter emitter) {
@@ -150,9 +216,19 @@ public class ModuleStreamService {
         try { emitter.complete(); } catch (IllegalStateException ignored) { }
     }
 
+    /**
+     * Se publica antes de que arranque el graceful shutdown, así que cerrar los SSE aquí
+     * permite que el apagado termine de inmediato en lugar de esperar el timeout.
+     */
+    @EventListener(ContextClosedEvent.class)
+    public void onContextClosed() {
+        connections.keySet().forEach(this::close);
+    }
+
     @PreDestroy
     public void shutdown() {
-        heartbeat.shutdownNow();
+        heartbeatScheduler.shutdownNow();
+        heartbeatWorkers.shutdownNow();
         connections.keySet().forEach(this::close);
     }
 }

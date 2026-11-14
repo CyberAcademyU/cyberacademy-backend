@@ -7,6 +7,7 @@ import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.security.JwtService;
 import com.cyberacademy.security.OtpProtectionService;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,8 @@ class LogoutRevocationTest {
     private final JwtService jwt = mock(JwtService.class);
     private final AuthService service = new AuthService(mock(UserRepository.class), mock(EmailOtpRepository.class),
             revoked, mock(RateLimitService.class), mock(PasswordService.class), mock(OtpProtectionService.class), jwt,
-            mock(EmailService.class), mock(EmailAddressVerifier.class));
+            mock(EmailService.class), mock(EmailAddressVerifier.class),
+            new PasswordTransportService("test-secret-at-least-32-bytes-long", false));
 
     @Test
     void validTokenIsRecordedForRevocation() {

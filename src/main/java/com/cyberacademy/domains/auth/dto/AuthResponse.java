@@ -4,20 +4,12 @@ import java.util.UUID;
 
 public class AuthResponse {
 
-    private String token;
-    private String tokenType = "Bearer";
-    private long expiresInSeconds;
     private UserSummary user;
 
-    public AuthResponse(String token, long expiresInSeconds, UserSummary user) {
-        this.token = token;
-        this.expiresInSeconds = expiresInSeconds;
+    public AuthResponse(UserSummary user) {
         this.user = user;
     }
 
-    public String getToken() { return token; }
-    public String getTokenType() { return tokenType; }
-    public long getExpiresInSeconds() { return expiresInSeconds; }
     public UserSummary getUser() { return user; }
 
     public static class UserSummary {
