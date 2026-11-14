@@ -10,6 +10,7 @@ import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.security.JwtService;
 import com.cyberacademy.security.OtpProtectionService;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.slf4j.Logger;
@@ -42,6 +43,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final EmailService emailService;
     private final EmailAddressVerifier emailAddressVerifier;
+    private final PasswordTransportService passwordTransport;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public AuthService(UserRepository userRepository,
@@ -52,7 +54,8 @@ public class AuthService {
                        OtpProtectionService otpProtectionService,
                        JwtService jwtService,
                        EmailService emailService,
-                       EmailAddressVerifier emailAddressVerifier) {
+                       EmailAddressVerifier emailAddressVerifier,
+                       PasswordTransportService passwordTransport) {
         this.userRepository = userRepository;
         this.otpRepository = otpRepository;
         this.revokedTokenRepository = revokedTokenRepository;
@@ -62,6 +65,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.emailService = emailService;
         this.emailAddressVerifier = emailAddressVerifier;
+        this.passwordTransport = passwordTransport;
     }
 
     @Transactional
@@ -129,6 +133,9 @@ public class AuthService {
         // Rate limiting por correo para evitar fuerza bruta en el código OTP
         rateLimitService.check("verify-otp:" + email);
 
+        // Descifrar antes de consumir el OTP: un payload inválido no debe gastar el código.
+        String password = passwordTransport.resolveNewPassword(request.getPassword(), request.getSealedPassword());
+
         // El bloqueo del usuario serializa la verificación y el reenvío, incluso
         // cuando aún no existe una fila OTP que pueda bloquearse.
         var userOptional = userRepository.findLockedByEmailIgnoreCase(email);
@@ -170,7 +177,7 @@ public class AuthService {
 
         // Activar al usuario en la base de datos
         User user = userOptional.get();
-        user.setPasswordHash(passwordService.hashPassword(request.getPassword()));
+        user.setPasswordHash(passwordService.hashPassword(password));
         user.setEmailVerified(true);
         user.setEmailVerifiedAt(OffsetDateTime.now());
         user.setStatus(UserStatus.ACTIVE);
@@ -228,11 +235,16 @@ public class AuthService {
         // Rate limiting por correo para evitar fuerza bruta en el inicio de sesión
         rateLimitService.check("login:" + email);
 
+        // Descifrado del sobre híbrido; si el cliente es antiguo puede venir en claro.
+        String password = passwordTransport.resolve(request.getPassword(), request.getSealedPassword());
+        boolean validLength = password != null && !password.isEmpty()
+                && password.length() <= PasswordTransportService.MAX_PASSWORD_LENGTH;
+
         var userOptional = userRepository.findByEmailIgnoreCase(email);
         if (userOptional.isEmpty()) {
             // Anti-enumeración: gastar el mismo coste de Argon2 que haría un usuario
             // real, para que el tiempo de respuesta no revele si el correo existe.
-            passwordService.verifyAgainstDummy(request.getPassword());
+            passwordService.verifyAgainstDummy(validLength ? password : "");
             return ApiResponse.error("Correo o contraseña incorrectos");
         }
 
@@ -244,7 +256,7 @@ public class AuthService {
         }
 
         // Validar contraseña con Argon2id
-        if (!passwordService.verifyPassword(request.getPassword(), user.getPasswordHash())) {
+        if (!validLength || !passwordService.verifyPassword(password, user.getPasswordHash())) {
             user.setFailedLoginAttempts(user.getFailedLoginAttempts() + 1);
             if (user.getFailedLoginAttempts() >= MAX_FAILED_LOGIN_ATTEMPTS) {
                 user.setLockedUntil(OffsetDateTime.now().plusMinutes(LOCK_TIME_MINUTES));
@@ -268,9 +280,6 @@ public class AuthService {
         user.setLastLoginAt(OffsetDateTime.now());
         userRepository.save(user);
 
-        // Generar JWT con el rol que dictamina la base de datos (STUDENT o ADMIN)
-        String token = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole().name());
-
         AuthResponse.UserSummary summary = new AuthResponse.UserSummary(
                 user.getId(),
                 user.getFirstName(),
@@ -279,7 +288,7 @@ public class AuthService {
                 user.getRole().name()
         );
 
-        AuthResponse response = new AuthResponse(token, jwtService.getExpirationSeconds(), summary);
+        AuthResponse response = new AuthResponse(summary);
         return ApiResponse.ok("Inicio de sesión exitoso", response);
     }
 

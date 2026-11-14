@@ -1,11 +1,13 @@
 package com.cyberacademy.domains.auth.service;
 
 import com.cyberacademy.domains.auth.model.PasswordResetCode;
+import com.cyberacademy.domains.auth.dto.SealedSecret;
 import com.cyberacademy.domains.auth.model.UserStatus;
 import com.cyberacademy.domains.auth.repository.PasswordResetCodeRepository;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.exception.EmailDeliveryException;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,15 +24,17 @@ public class PasswordResetService {
     private final PasswordService passwords;
     private final RateLimitService limits;
     private final EmailService email;
+    private final PasswordTransportService transport;
     private final SecureRandom random = new SecureRandom();
 
     public PasswordResetService(UserRepository users, PasswordResetCodeRepository codes, PasswordService passwords,
-                                RateLimitService limits, EmailService email) {
+                                RateLimitService limits, EmailService email, PasswordTransportService transport) {
         this.users = users;
         this.codes = codes;
         this.passwords = passwords;
         this.limits = limits;
         this.email = email;
+        this.transport = transport;
     }
 
     @Transactional
@@ -57,9 +61,11 @@ public class PasswordResetService {
     }
 
     @Transactional
-    public boolean confirm(String address, String code, String newPassword) {
+    public boolean confirm(String address, String code, String newPassword, SealedSecret sealedNewPassword) {
         String normalized = address.strip().toLowerCase(Locale.ROOT);
         limits.check("reset-confirm:" + normalized);
+        // Descifrar y validar la longitud antes de tocar el código de recuperación.
+        String resolvedPassword = transport.resolveNewPassword(newPassword, sealedNewPassword);
         var user = users.findLockedByEmailIgnoreCase(normalized).orElse(null);
         if (user == null || user.getStatus() != UserStatus.ACTIVE || !user.isEmailVerified()) return false;
         var reset = codes.findById(user.getId()).orElse(null);
@@ -72,7 +78,7 @@ public class PasswordResetService {
         }
         reset.setUsed(true);
         var now = OffsetDateTime.now();
-        user.setPasswordHash(passwords.hashPassword(newPassword));
+        user.setPasswordHash(passwords.hashPassword(resolvedPassword));
         user.setPasswordChangedAt(now);
         user.setUpdatedAt(now);
         return true;

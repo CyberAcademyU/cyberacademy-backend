@@ -5,8 +5,7 @@ import com.cyberacademy.domains.auth.model.UserStatus;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.module.dto.ModuleCreatedEvent;
 import com.cyberacademy.domains.module.repository.CourseModuleRepository;
-import com.cyberacademy.security.JwtService;
-import io.jsonwebtoken.Claims;
+import com.cyberacademy.security.SessionService;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,16 +64,16 @@ public class ModuleStreamService {
     private final AtomicBoolean heartbeatInProgress = new AtomicBoolean(false);
     private final UserRepository users;
     private final CourseModuleRepository modules;
-    private final JwtService jwtService;
+    private final SessionService sessions;
     private final TransactionTemplate readNewTransaction;
 
     record Connection(UUID userId, String jti, Instant expiresAt, Instant openedAt) {}
 
-    public ModuleStreamService(UserRepository users, CourseModuleRepository modules, JwtService jwtService,
+    public ModuleStreamService(UserRepository users, CourseModuleRepository modules, SessionService sessions,
                                PlatformTransactionManager transactionManager) {
         this.users = users;
         this.modules = modules;
-        this.jwtService = jwtService;
+        this.sessions = sessions;
         this.readNewTransaction = new TransactionTemplate(transactionManager);
         this.readNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.readNewTransaction.setReadOnly(true);
@@ -93,9 +92,10 @@ public class ModuleStreamService {
     }
 
     public SseEmitter connect(String token) {
-        Claims claims = jwtService.getClaimsFromToken(token);
-        UUID userId = UUID.fromString(claims.getSubject());
-        Connection connection = new Connection(userId, claims.getId(), claims.getExpiration().toInstant(), Instant.now());
+        var user = sessions.authenticate(token);
+        if (user == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        UUID userId = user.getId();
+        Connection connection = new Connection(userId, token, Instant.now().plusSeconds(SessionService.ACCESS_SECONDS), Instant.now());
         SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
         List<SseEmitter> replaced = new ArrayList<>();
         synchronized (connections) {
@@ -161,11 +161,9 @@ public class ModuleStreamService {
         if (connection.jti() == null || !connection.expiresAt().isAfter(Instant.now())) {
             return false;
         }
-        return users.findSessionUser(connection.userId(), connection.jti())
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE
-                        && user.isEmailVerified()
-                        && user.getRole() == UserRole.STUDENT)
-                .isPresent();
+        var user = sessions.authenticate(connection.jti());
+        return user != null && user.getId().equals(connection.userId()) && user.getRole() == UserRole.STUDENT
+                && user.getStatus() == UserStatus.ACTIVE && user.isEmailVerified();
     }
 
     /** Un tick cada 30 s. Los checks se reparten entre 2 workers y nunca se solapan entre ticks. */

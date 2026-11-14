@@ -16,7 +16,7 @@ Guarda las variables y redespliega el backend. No hace falta recompilar la APK.
 No guardes la API key en Git ni en el frontend. Gmail OAuth ya no se utiliza
 cuando `MAIL_TRANSPORT=resend`.
 
-API REST de la plataforma de ciberseguridad **CyberAcademy**. Gestiona registro de estudiantes con verificación por código OTP enviado al correo, autenticación con JWT y control de acceso por roles.
+API REST de la plataforma de ciberseguridad **CyberAcademy**. Gestiona registro de estudiantes con verificación por código OTP enviado al correo, sesiones con cookies `HttpOnly` y control de acceso por roles.
 
 ## Stack
 
@@ -24,7 +24,7 @@ API REST de la plataforma de ciberseguridad **CyberAcademy**. Gestiona registro 
 |---|---|
 | Java | 21+ |
 | Spring Boot | 3.3.4 |
-| Spring Security | 6.x (stateless, JWT) |
+| Spring Security | 6.x (sesiones en base de datos con cookies) |
 | Spring Data JPA / Hibernate | 6.5 |
 | PostgreSQL (Supabase) | 17 |
 | Flyway | migraciones versionadas |
@@ -58,6 +58,8 @@ spring:
 security:
   jwt:
     secret: <cadena-aleatoria-de-al-menos-32-bytes>
+  session:
+    secure: false # cookies sin Secure solo en HTTP local
   cors:
     allowed-origins: http://localhost:4200
   mail:
@@ -76,6 +78,9 @@ Ese archivo está en `.gitignore`. En producción, usa variables de entorno:
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | credenciales SMTP |
 | `MAIL_FROM` | remitente visible |
 | `CORS_ALLOWED_ORIGINS` | orígenes permitidos, separados por comas |
+| `SESSION_COOKIE_SECURE` | `true` por defecto; `false` solo en local sin HTTPS |
+| `PASSWORD_TRANSPORT_SECRET` | secreto de la clave ECDH; si falta usa `JWT_SECRET` |
+| `PASSWORD_TRANSPORT_REQUIRE_ENCRYPTION` | `true` rechaza contraseñas sin cifrar; `false` por defecto |
 | `SPRING_PROFILES_ACTIVE` | `prod` en producción |
 | `MAIL_TRANSPORT` | `gmail-api` para enviar por HTTPS; `smtp` por defecto |
 | `GMAIL_CLIENT_ID` | ID del cliente OAuth de Google para Gmail API |
@@ -142,7 +147,7 @@ anterior no puede completar la verificación con el contrato nuevo.
 
 El `Dockerfile` compila el backend con Java 21 y crea una imagen sin Maven. Crea un **Web Service** en Render conectado a este repositorio y selecciona **Docker**. El servicio escucha en el puerto 8080.
 
-Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
+Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Las cookies de sesión usan `Secure` por defecto (`SESSION_COOKIE_SECURE=true`). Antes de arrancar esta versión aplica `V11__opaque_cookie_sessions.sql`; el resto de la lista de comprobación está en `SEGURIDAD.md`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
 
 Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío por SMTP no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
 
@@ -231,20 +236,24 @@ Base: `/api/v1`
 | POST | `/auth/register` | — | Registro de estudiante (rol STUDENT) y envío de OTP |
 | POST | `/auth/verify-otp` | — | Verifica el código y activa la cuenta |
 | POST | `/auth/resend-otp` | — | Reenvía un nuevo código |
-| POST | `/auth/login` | — | Login; devuelve JWT |
-| GET | `/modules` | JWT | Catálogo de módulos activos con sus 4 secciones |
-| GET | `/modules/{id}` | JWT | Detalle de un módulo |
+| POST | `/auth/login` | — | Login; deja las cookies de sesión (sin token en el JSON) |
+| GET | `/auth/encryption-key` | — | Clave pública ECDH para cifrar la contraseña en el navegador |
+| GET | `/auth/me` | cookie | Restaura la sesión de la SPA |
+| POST | `/auth/refresh` | cookie refresh | Rota el par de cookies |
+| POST | `/auth/refresh/logout` | cookie refresh | Revoca la sesión y borra las cookies |
+| GET | `/modules` | Sesión | Catálogo de módulos activos con sus 4 secciones |
+| GET | `/modules/{id}` | Sesión | Detalle de un módulo |
 | POST | `/modules` | ADMIN | Crea un módulo (la BD genera 3 teoría + 1 práctica) |
 | PUT | `/modules/{id}` | ADMIN | Actualiza título, descripción, orden, nota mínima o estado |
 | PUT | `/modules/{moduleId}/sections/{sectionId}` | ADMIN | Actualiza título y/o peso de una sección |
 | PUT | `/modules/{moduleId}/weights` | ADMIN | Actualiza los 4 pesos en una sola petición (deben sumar 100) |
-| GET | `/modules/{moduleId}/progress` | JWT | Mi progreso en ese módulo, sección por sección |
-| GET | `/modules/{moduleId}/sections/{sectionId}` | JWT | Sesión desbloqueada: contenido y preguntas (sin respuestas) |
-| POST | `/modules/{moduleId}/sections/{sectionId}/check` | JWT | Comprueba la pregunta de comprensión de una teoría |
-| POST | `/modules/{moduleId}/practice/submit` | JWT | Corrige la práctica (único intento) y guarda la nota |
+| GET | `/modules/{moduleId}/progress` | Sesión | Mi progreso en ese módulo, sección por sección |
+| GET | `/modules/{moduleId}/sections/{sectionId}` | Sesión | Sesión desbloqueada: contenido y preguntas (sin respuestas) |
+| POST | `/modules/{moduleId}/sections/{sectionId}/check` | Sesión | Comprueba la pregunta de comprensión de una teoría |
+| POST | `/modules/{moduleId}/practice/submit` | Sesión | Corrige la práctica (único intento) y guarda la nota |
 | GET | `/modules/{moduleId}/content` | ADMIN | Contenido y preguntas de las 4 secciones (con respuestas) |
 | PUT | `/modules/{moduleId}/sections/{sectionId}/content` | ADMIN | Guarda título, contenido y preguntas de una sesión |
-| GET | `/progress` | JWT | Resumen de mi progreso en todos los módulos |
+| GET | `/progress` | Sesión | Resumen de mi progreso en todos los módulos |
 | GET | `/progress/student/{userId}` | ADMIN | Resumen del progreso de un estudiante |
 | GET | `/admin/overview` | ADMIN | Métricas globales: estudiantes, nota media, avance y finalización por módulo |
 | GET | `/admin/students` | ADMIN | Estudiantes reales con módulos completados, total acumulado, nota media y última actividad (el detalle por módulo sale de `/progress/student/{userId}`) |
@@ -330,7 +339,7 @@ src/main/java/com/cyberacademy
 │   └── service      # AdminDashboardService (agregaciones SQL)
 ├── common/exception # ResourceNotFound, Conflict, BadRequest
 ├── config           # GlobalExceptionHandler
-└── security         # JWT, filtro, Argon2id, CORS, CurrentUserProvider
+└── security         # sesiones, cookies, filtros CSRF/XSS, Argon2id, cifrado de contraseñas
 src/main/resources
 ├── application.yml
 └── db/migration
@@ -343,7 +352,13 @@ src/main/resources
 ## Seguridad
 
 - Contraseñas con **Argon2id** (parámetros OWASP: 64 MB, 3 iteraciones).
-- JWT firmado con HMAC-SHA, expiración 60 min.
+- Sesiones opacas en PostgreSQL: access de 10 min y refresh de 7 días con rotación.
+  Solo se almacenan hashes SHA-256; el navegador guarda cookies `HttpOnly`,
+  `Secure` y `SameSite=Strict` y nunca ve el token.
+- Cifrado híbrido de contraseñas en el navegador (ECDH P-256, HKDF-SHA256 y
+  AES-256-GCM). `GET /auth/encryption-key` publica la clave y el backend acepta
+  `sealedPassword`/`sealedNewPassword` en login, OTP, recuperación y cambio.
+- Cabeceras CSP con Trusted Types, COOP, CORP, Permissions-Policy y HSTS.
 - Bloqueo temporal de cuenta tras 5 intentos fallidos.
 - El limitador de autenticación responde con HTTP 429 y `Retry-After` en segundos al superar el límite por operación y correo/usuario o dirección de conexión. También se aplica a recuperación y cambio de contraseña. Es local a cada instancia: se reinicia al reiniciar el servicio; detrás de un proxy, `getRemoteAddr()` puede corresponder al proxy y agrupar usuarios. Comprueba la configuración de red antes de depender del límite por IP.
 - OTP de 6 dígitos, 15 min de validez, máximo 5 intentos, un solo uso.

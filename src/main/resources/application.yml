@@ -72,6 +72,16 @@ spring:
 
 # Seguridad y Tokens JWT
 security:
+  session:
+    secure: ${SESSION_COOKIE_SECURE:true}
+  # Cifrado híbrido de las contraseñas en el navegador (ECDH P-256 + HKDF + AES-256-GCM).
+  password-transport:
+    # Secreto del que se deriva la clave del servidor. Por defecto reutiliza JWT_SECRET,
+    # de modo que no hace falta una variable nueva ni cambia al reiniciar.
+    secret: ${PASSWORD_TRANSPORT_SECRET:${JWT_SECRET}}
+    # true exige el sobre cifrado y rechaza a los clientes antiguos. Actívalo cuando
+    # el frontend nuevo esté desplegado; si no, el login antiguo seguiría funcionando.
+    require-encryption: ${PASSWORD_TRANSPORT_REQUIRE_ENCRYPTION:false}
   jwt:
     # Obligatoria: se define en application-local.yml (dev) o en la variable JWT_SECRET (prod)
     secret: ${JWT_SECRET}

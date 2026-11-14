@@ -5,7 +5,7 @@ import com.cyberacademy.domains.auth.model.UserRole;
 import com.cyberacademy.domains.auth.model.UserStatus;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.module.repository.CourseModuleRepository;
-import com.cyberacademy.security.JwtService;
+import com.cyberacademy.security.SessionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,7 +30,7 @@ class ModuleStreamServiceTest {
 
     private final UserRepository users = mock(UserRepository.class);
     private final CourseModuleRepository modules = mock(CourseModuleRepository.class);
-    private final JwtService jwtService = mock(JwtService.class);
+    private final SessionService jwtService = mock(SessionService.class);
     private final ModuleStreamService service = new ModuleStreamService(
             users, modules, jwtService, mock(PlatformTransactionManager.class));
 
@@ -55,12 +55,12 @@ class ModuleStreamServiceTest {
     @Test
     void acceptsActiveVerifiedStudentWithLiveToken() {
         User user = student();
-        when(users.findSessionUser(user.getId(), "jti-1")).thenReturn(Optional.of(user));
+        when(jwtService.authenticate("jti-1")).thenReturn(user);
 
         assertTrue(service.authorized(connection(user.getId(), "jti-1", Instant.now().plusSeconds(600))));
 
         // Una única consulta por comprobación de sesión.
-        verify(users, times(1)).findSessionUser(user.getId(), "jti-1");
+        verify(jwtService, times(1)).authenticate("jti-1");
     }
 
     @Test
@@ -78,7 +78,7 @@ class ModuleStreamServiceTest {
     @Test
     void rejectsRevokedOrUnknownSession() {
         UUID userId = UUID.randomUUID();
-        when(users.findSessionUser(userId, "jti-1")).thenReturn(Optional.empty());
+        when(jwtService.authenticate("jti-1")).thenReturn(null);
 
         assertFalse(service.authorized(connection(userId, "jti-1", Instant.now().plusSeconds(600))));
     }
@@ -87,7 +87,7 @@ class ModuleStreamServiceTest {
     void rejectsSuspendedUser() {
         User user = student();
         user.setStatus(UserStatus.SUSPENDED);
-        when(users.findSessionUser(user.getId(), "jti-1")).thenReturn(Optional.of(user));
+        when(jwtService.authenticate("jti-1")).thenReturn(user);
 
         assertFalse(service.authorized(connection(user.getId(), "jti-1", Instant.now().plusSeconds(600))));
     }
@@ -96,7 +96,7 @@ class ModuleStreamServiceTest {
     void rejectsUserWithUnverifiedEmail() {
         User user = student();
         user.setEmailVerified(false);
-        when(users.findSessionUser(user.getId(), "jti-1")).thenReturn(Optional.of(user));
+        when(jwtService.authenticate("jti-1")).thenReturn(user);
 
         assertFalse(service.authorized(connection(user.getId(), "jti-1", Instant.now().plusSeconds(600))));
     }
@@ -105,7 +105,7 @@ class ModuleStreamServiceTest {
     void rejectsNonStudentRole() {
         User user = student();
         user.setRole(UserRole.ADMIN);
-        when(users.findSessionUser(user.getId(), "jti-1")).thenReturn(Optional.of(user));
+        when(jwtService.authenticate("jti-1")).thenReturn(user);
 
         assertFalse(service.authorized(connection(user.getId(), "jti-1", Instant.now().plusSeconds(600))));
     }
