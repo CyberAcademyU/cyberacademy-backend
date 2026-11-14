@@ -6,6 +6,7 @@ import com.cyberacademy.domains.auth.model.UserStatus;
 import com.cyberacademy.domains.auth.repository.PasswordResetCodeRepository;
 import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
@@ -21,7 +22,8 @@ class PasswordResetServiceTest {
     private final PasswordService passwords = mock(PasswordService.class);
     private final RateLimitService limits = mock(RateLimitService.class);
     private final EmailService email = mock(EmailService.class);
-    private final PasswordResetService service = new PasswordResetService(users, codes, passwords, limits, email);
+    private final PasswordResetService service = new PasswordResetService(users, codes, passwords, limits, email,
+            new PasswordTransportService("test-secret-at-least-32-bytes-long", false));
     private final User user = new User();
     private final PasswordResetCode reset = new PasswordResetCode();
 
@@ -46,24 +48,24 @@ class PasswordResetServiceTest {
         when(codes.findById(user.getId())).thenReturn(Optional.of(reset));
         when(passwords.verifyPassword("123456", "hash")).thenReturn(true);
         when(passwords.hashPassword("nueva123")).thenReturn("new-hash");
-        assertTrue(service.confirm("test@example.com", "123456", "nueva123"));
+        assertTrue(service.confirm("test@example.com", "123456", "nueva123", null));
         assertTrue(reset.isUsed());
         assertEquals("new-hash", user.getPasswordHash());
         assertNotNull(user.getPasswordChangedAt());
-        assertFalse(service.confirm("test@example.com", "123456", "nueva123"));
+        assertFalse(service.confirm("test@example.com", "123456", "nueva123", null));
     }
 
     @Test void invalidCodeCountsAttemptsAndExpiredCodeFails() {
         when(users.findLockedByEmailIgnoreCase("test@example.com")).thenReturn(Optional.of(user));
         when(codes.findById(user.getId())).thenReturn(Optional.of(reset));
         reset.setAttempts(4);
-        assertFalse(service.confirm("test@example.com", "000000", "nueva123"));
+        assertFalse(service.confirm("test@example.com", "000000", "nueva123", null));
         assertEquals(5, reset.getAttempts());
         assertTrue(reset.isUsed());
         reset.setUsed(false);
         reset.setAttempts(0);
         reset.setExpiresAt(OffsetDateTime.now().minusSeconds(1));
-        assertFalse(service.confirm("test@example.com", "123456", "nueva123"));
+        assertFalse(service.confirm("test@example.com", "123456", "nueva123", null));
         verify(passwords, never()).hashPassword(anyString());
     }
 }
