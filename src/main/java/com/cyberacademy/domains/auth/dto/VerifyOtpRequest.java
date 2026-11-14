@@ -14,9 +14,11 @@ public class VerifyOtpRequest {
     @Size(min = 6, max = 6, message = "El codigo de verificacion debe tener 6 dígitos")
     private String otpCode;
 
-    @NotBlank(message = "La contraseña es obligatoria")
+    // Null cuando la contraseña llega cifrada en `sealedPassword`.
     @Size(min = 8, max = 128, message = "La contraseña debe tener entre 8 y 128 caracteres")
     private String password;
+
+    private SealedSecret sealedPassword;
 
     public VerifyOtpRequest() {}
 
@@ -27,4 +29,7 @@ public class VerifyOtpRequest {
     public void setOtpCode(String otpCode) { this.otpCode = otpCode; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public SealedSecret getSealedPassword() { return sealedPassword; }
+    public void setSealedPassword(SealedSecret sealedPassword) { this.sealedPassword = sealedPassword; }
 }

@@ -2,6 +2,7 @@ package com.cyberacademy.domains.auth.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public class LoginRequest {
 
@@ -9,8 +10,12 @@ public class LoginRequest {
     @Email(message = "Formato de correo no válido")
     private String email;
 
-    @NotBlank(message = "La contraseña es obligatoria")
+    // El formulario nuevo envía `sealedPassword`; este campo solo se usa para
+    // clientes antiguos mientras PASSWORD_TRANSPORT_REQUIRE_ENCRYPTION=false.
+    @Size(max = 128, message = "La contraseña no es correcta")
     private String password;
+
+    private SealedSecret sealedPassword;
 
     public LoginRequest() {}
 
@@ -19,4 +24,7 @@ public class LoginRequest {
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public SealedSecret getSealedPassword() { return sealedPassword; }
+    public void setSealedPassword(SealedSecret sealedPassword) { this.sealedPassword = sealedPassword; }
 }

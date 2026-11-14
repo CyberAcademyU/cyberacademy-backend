@@ -12,6 +12,7 @@ import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.security.JwtService;
 import com.cyberacademy.security.OtpProtectionService;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -33,7 +34,7 @@ class EmailOtpProtectionTest {
     private final PasswordService passwords = mock(PasswordService.class);
     private final AuthService service = new AuthService(users, otps, mock(RevokedTokenRepository.class),
             limits, passwords, protection, mock(JwtService.class),
-            email, verifier);
+            email, verifier, new PasswordTransportService("test-secret-at-least-32-bytes-long", false));
 
     @Test
     void protectedCodeDependsOnSecretUserAndCode() {

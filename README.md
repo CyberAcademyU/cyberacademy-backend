@@ -58,6 +58,8 @@ spring:
 security:
   jwt:
     secret: <cadena-aleatoria-de-al-menos-32-bytes>
+  session:
+    secure: false # cookies sin Secure solo en HTTP local
   cors:
     allowed-origins: http://localhost:4200
   mail:
@@ -76,6 +78,9 @@ Ese archivo está en `.gitignore`. En producción, usa variables de entorno:
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | credenciales SMTP |
 | `MAIL_FROM` | remitente visible |
 | `CORS_ALLOWED_ORIGINS` | orígenes permitidos, separados por comas |
+| `SESSION_COOKIE_SECURE` | `true` por defecto; `false` solo en local sin HTTPS |
+| `PASSWORD_TRANSPORT_SECRET` | secreto de la clave ECDH; si falta usa `JWT_SECRET` |
+| `PASSWORD_TRANSPORT_REQUIRE_ENCRYPTION` | `true` rechaza contraseñas sin cifrar; `false` por defecto |
 | `SPRING_PROFILES_ACTIVE` | `prod` en producción |
 | `MAIL_TRANSPORT` | `gmail-api` para enviar por HTTPS; `smtp` por defecto |
 | `GMAIL_CLIENT_ID` | ID del cliente OAuth de Google para Gmail API |
@@ -142,7 +147,7 @@ anterior no puede completar la verificación con el contrato nuevo.
 
 El `Dockerfile` compila el backend con Java 21 y crea una imagen sin Maven. Crea un **Web Service** en Render conectado a este repositorio y selecciona **Docker**. El servicio escucha en el puerto 8080.
 
-Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
+Configura en Render `SPRING_PROFILES_ACTIVE=prod`, `SUPABASE_DB_URL` (URL JDBC), `SUPABASE_DB_USERNAME`, `SUPABASE_DB_PASSWORD`, `JWT_SECRET` y `CORS_ALLOWED_ORIGINS`. Las cookies de sesión usan `Secure` por defecto (`SESSION_COOKIE_SECURE=true`). Antes de arrancar esta versión aplica `V11__opaque_cookie_sessions.sql`; el resto de la lista de comprobación está en `SEGURIDAD.md`. Usa una base de datos de prueba y configura los secretos en Render, nunca en el repositorio ni en el Dockerfile. La base debe tener las migraciones necesarias aplicadas manualmente: Flyway está desactivado y Hibernate valida el esquema al arrancar.
 
 Cuando el servicio esté activo, comprueba `https://<servicio>.onrender.com/api/v1/public/modules`. En Render Free el servicio puede suspenderse tras inactividad y los puertos SMTP 465 y 587 están bloqueados: el envío por SMTP no funcionará con esos puertos. El plan gratuito es para pruebas, no garantiza capacidad para 100 usuarios.
 
@@ -231,7 +236,11 @@ Base: `/api/v1`
 | POST | `/auth/register` | — | Registro de estudiante (rol STUDENT) y envío de OTP |
 | POST | `/auth/verify-otp` | — | Verifica el código y activa la cuenta |
 | POST | `/auth/resend-otp` | — | Reenvía un nuevo código |
-| POST | `/auth/login` | — | Login; devuelve JWT |
+| POST | `/auth/login` | — | Login; deja las cookies de sesión (sin token en el JSON) |
+| GET | `/auth/encryption-key` | — | Clave pública ECDH para cifrar la contraseña en el navegador |
+| GET | `/auth/me` | cookie | Restaura la sesión de la SPA |
+| POST | `/auth/refresh` | cookie refresh | Rota el par de cookies |
+| POST | `/auth/refresh/logout` | cookie refresh | Revoca la sesión y borra las cookies |
 | GET | `/modules` | JWT | Catálogo de módulos activos con sus 4 secciones |
 | GET | `/modules/{id}` | JWT | Detalle de un módulo |
 | POST | `/modules` | ADMIN | Crea un módulo (la BD genera 3 teoría + 1 práctica) |

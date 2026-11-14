@@ -2,7 +2,7 @@ package com.cyberacademy.domains.profile.service;
 
 import com.cyberacademy.domains.auth.model.User;
 import com.cyberacademy.domains.auth.repository.UserRepository;
-import com.cyberacademy.domains.auth.service.AuthService;
+import com.cyberacademy.security.SessionService;
 import com.cyberacademy.domains.auth.service.RateLimitService;
 import com.cyberacademy.exception.BadRequestException;
 import com.cyberacademy.exception.ConflictException;
@@ -12,6 +12,7 @@ import com.cyberacademy.domains.profile.dto.ProfileResponse;
 import com.cyberacademy.domains.profile.dto.UpdateProfileRequest;
 import com.cyberacademy.security.CurrentUserProvider;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,20 +27,23 @@ public class ProfileService {
     private final GamificationService gamificationService;
     private final PasswordService passwordService;
     private final RateLimitService rateLimitService;
-    private final AuthService authService;
+    private final SessionService authService;
+    private final PasswordTransportService passwordTransport;
 
     public ProfileService(UserRepository userRepository,
                           CurrentUserProvider currentUserProvider,
                           GamificationService gamificationService,
                           PasswordService passwordService,
                           RateLimitService rateLimitService,
-                          AuthService authService) {
+                          SessionService authService,
+                          PasswordTransportService passwordTransport) {
         this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
         this.gamificationService = gamificationService;
         this.passwordService = passwordService;
         this.rateLimitService = rateLimitService;
         this.authService = authService;
+        this.passwordTransport = passwordTransport;
     }
 
     @Transactional(readOnly = true)
@@ -83,21 +87,28 @@ public class ProfileService {
         User user = currentUserProvider.requireCurrentUser();
 
         rateLimitService.check("password-change:" + user.getId());
-        if (!passwordService.verifyPassword(request.getCurrentPassword(), user.getPasswordHash())) {
+
+        String current = passwordTransport.resolve(request.getCurrentPassword(), request.getSealedCurrentPassword());
+        String next = passwordTransport.resolveNewPassword(request.getNewPassword(), request.getSealedNewPassword());
+
+        if (current == null || current.isEmpty() || current.length() > PasswordTransportService.MAX_PASSWORD_LENGTH) {
             throw new BadRequestException("La contraseña actual no es correcta");
         }
-        if (request.getNewPassword().equals(request.getCurrentPassword())) {
+        if (!passwordService.verifyPassword(current, user.getPasswordHash())) {
+            throw new BadRequestException("La contraseña actual no es correcta");
+        }
+        if (next.equals(current)) {
             throw new BadRequestException("La nueva contraseña debe ser distinta de la actual");
         }
 
         OffsetDateTime now = OffsetDateTime.now();
-        user.setPasswordHash(passwordService.hashPassword(request.getNewPassword()));
+        user.setPasswordHash(passwordService.hashPassword(next));
         user.setPasswordChangedAt(now);
         user.setUpdatedAt(now);
         userRepository.save(user);
 
         if (currentToken != null) {
-            authService.revokeToken(currentToken);
+            authService.revoke(currentToken);
         }
     }
 
