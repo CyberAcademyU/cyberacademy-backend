@@ -46,6 +46,13 @@ class GeminiServiceTest {
         server.verify();
     }
 
+    @Test void assessmentFollowUpNeverTriggersAnswerGeneration() {
+        classifyAs("EVALUACION");
+        assertEquals(AssessmentGuard.RESPONSE, service.reply(new RocuController.Chat("¿Entonces marco la segunda?",
+                List.of(new RocuController.Turn("Pregunta del módulo sobre correos", AssessmentGuard.RESPONSE)))));
+        server.verify();
+    }
+
     @Test void answersWebsiteQuestionsWithVerifiedOtpContext() {
         classifyAs("SOBRE_LA_WEB");
         server.expect(anything())
