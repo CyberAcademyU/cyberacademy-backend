@@ -20,15 +20,18 @@ public class RocuController {
 
     private final GeminiService gemini;
     private final RateLimitService limits;
+    private final AssessmentGuard assessments;
 
-    public RocuController(GeminiService gemini, RateLimitService limits) {
+    public RocuController(GeminiService gemini, RateLimitService limits, AssessmentGuard assessments) {
         this.gemini = gemini;
         this.limits = limits;
+        this.assessments = assessments;
     }
 
     @PostMapping("/chat")
     public ApiResponse<String> chat(@Valid @RequestBody Chat chat, HttpServletRequest request) {
         limits.checkChat(request.getRemoteAddr());
+        if (assessments.matches(chat.message())) return ApiResponse.ok("Respuesta de Rocu", AssessmentGuard.RESPONSE);
         return ApiResponse.ok("Respuesta de Rocu", gemini.reply(chat));
     }
 }

@@ -16,6 +16,9 @@ public interface SectionQuestionRepository extends JpaRepository<SectionQuestion
 
     long countBySectionId(UUID sectionId);
 
+    @org.springframework.data.jpa.repository.Query("select distinct q.prompt from SectionQuestion q")
+    List<String> findAssessmentPrompts();
+
     /** Borra las preguntas de una sección junto con sus opciones (cascade de la entidad). */
     void deleteBySectionId(UUID sectionId);
 }
