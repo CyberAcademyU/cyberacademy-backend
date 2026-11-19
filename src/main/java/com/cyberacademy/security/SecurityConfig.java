@@ -39,7 +39,7 @@ public class SecurityConfig {
         this.jwtService = jwtService;
         this.revokedTokenRepository = revokedTokenRepository;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        // Se admiten varios orígenes separados por comas en la propiedad del application.yml
+        // Se admiten varios or├¡genes separados por comas en la propiedad del application.yml
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
@@ -53,17 +53,18 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // El dispatch asíncrono solo reanuda una petición ya autenticada.
+                // El dispatch as├¡ncrono solo reanuda una petici├│n ya autenticada.
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
-                // Rutas públicas de autenticación
+                // Rutas p├║blicas de autenticaci├│n
                 .requestMatchers("/auth/**").permitAll()
-                // Catálogo público (página "Explorar"): solo GET
+                // Cat├ílogo p├║blico (p├ígina "Explorar"): solo GET
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
-                // /error debe ser público: si no, los errores se enmascaran como 401
+                .requestMatchers(HttpMethod.POST, "/rocu/chat").permitAll()
+                // /error debe ser p├║blico: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
-                // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
+                // Panel de administraci├│n: solo ADMIN (adem├ís del @PreAuthorize del controlador)
                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                // Cualquier otra requiere autenticación
+                // Cualquier otra requiere autenticaci├│n
                 .anyRequest().authenticated()
             )
             .addFilterBefore(new SecurityHeadersFilter(), UsernamePasswordAuthenticationFilter.class)
