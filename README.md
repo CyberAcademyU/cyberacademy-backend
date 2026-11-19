@@ -363,3 +363,9 @@ src/main/resources
 - El limitador de autenticación responde con HTTP 429 y `Retry-After` en segundos al superar el límite por operación y correo/usuario o dirección de conexión. También se aplica a recuperación y cambio de contraseña. Es local a cada instancia: se reinicia al reiniciar el servicio; detrás de un proxy, `getRemoteAddr()` puede corresponder al proxy y agrupar usuarios. Comprueba la configuración de red antes de depender del límite por IP.
 - OTP de 6 dígitos, 15 min de validez, máximo 5 intentos, un solo uso.
 - Nunca se registran códigos OTP ni contraseñas en los logs.
+
+### Rocu: conversación con Gemini
+
+El frontend llama a `POST /api/v1/rocu/chat`. Configura `GEMINI_API_KEY` en el entorno del backend; `GEMINI_MODEL` es opcional (por defecto `gemini-3.1-flash-lite`). Sin clave, el resto de la API sigue funcionando y el chat devuelve 503. No se requiere migración.
+
+Se envían el mensaje y hasta cuatro intercambios recientes a Google. La aplicación no persiste la conversación. Límites por instancia: 50 consultas por dirección de conexión y 200 en total cada 15 minutos; máximo seis consultas simultáneas. Una red compartida puede consumir el mismo límite. Despliega el backend antes del frontend y comprueba el flujo con una consulta ficticia, sin datos personales.

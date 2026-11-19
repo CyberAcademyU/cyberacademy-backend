@@ -52,6 +52,7 @@ public class SecurityConfig {
                 .requestMatchers("/auth/**").permitAll()
                 // Catálogo público (página "Explorar"): solo GET
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/rocu/chat").permitAll()
                 // /error debe ser público: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
                 // Health check de Render. Público pero sin detalles
