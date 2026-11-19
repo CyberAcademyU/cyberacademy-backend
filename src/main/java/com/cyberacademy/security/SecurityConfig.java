@@ -31,7 +31,7 @@ public class SecurityConfig {
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           @Value("${security.cors.allowed-origins:http://localhost:4200}") String allowedOrigins) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        // Se admiten varios orígenes separados por comas en la propiedad del application.yml
+        // Se admiten varios or├¡genes separados por comas en la propiedad del application.yml
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
@@ -45,21 +45,22 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // El dispatch asíncrono solo reanuda una petición ya autenticada.
+                // El dispatch as├¡ncrono solo reanuda una petici├│n ya autenticada.
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
-                // Rutas públicas de autenticación
+                // Rutas p├║blicas de autenticaci├│n
                 .requestMatchers("/auth/me").authenticated()
                 .requestMatchers("/auth/**").permitAll()
-                // Catálogo público (página "Explorar"): solo GET
+                // Cat├ílogo p├║blico (p├ígina "Explorar"): solo GET
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
-                // /error debe ser público: si no, los errores se enmascaran como 401
+                .requestMatchers(HttpMethod.POST, "/rocu/chat").permitAll()
+                // /error debe ser p├║blico: si no, los errores se enmascaran como 401
                 .requestMatchers("/error").permitAll()
-                // Health check de Render. Público pero sin detalles
+                // Health check de Render. P├║blico pero sin detalles
                 // (management.endpoint.health.show-details=never).
                 .requestMatchers("/actuator/health").permitAll()
-                // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
+                // Panel de administraci├│n: solo ADMIN (adem├ís del @PreAuthorize del controlador)
                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                // Cualquier otra requiere autenticación
+                // Cualquier otra requiere autenticaci├│n
                 .anyRequest().authenticated()
             )
             .addFilterBefore(new SecurityHeadersFilter(), UsernamePasswordAuthenticationFilter.class)
@@ -80,7 +81,7 @@ public class SecurityConfig {
         config.setAllowedHeaders(List.of("Content-Type", "Accept", "X-Requested-With"));
         config.setExposedHeaders(List.of("Retry-After"));
         config.setAllowCredentials(true);
-        // Cachea el preflight (OPTIONS) 1 hora en el navegador. Sin esto, cada petición
+        // Cachea el preflight (OPTIONS) 1 hora en el navegador. Sin esto, cada petici├│n
         // con Authorization dispara un OPTIONS extra contra un backend lento.
         config.setMaxAge(3600L);
 
@@ -92,7 +93,7 @@ public class SecurityConfig {
     @Bean
     public org.springframework.boot.web.servlet.FilterRegistrationBean<JwtAuthenticationFilter> sessionFilterRegistration() {
         var registration = new org.springframework.boot.web.servlet.FilterRegistrationBean<>(jwtAuthenticationFilter);
-        registration.setEnabled(false); // Ejecutar solo dentro de Spring Security, después de CORS.
+        registration.setEnabled(false); // Ejecutar solo dentro de Spring Security, despu├®s de CORS.
         return registration;
     }
 }

@@ -51,6 +51,13 @@ public class RateLimitService {
         if (waitMs > 0) throw new RateLimitException((waitMs + 999) / 1000);
     }
 
+    public void checkChat(String origin) {
+        long now = clock.getAsLong();
+        long wait = consume(origins, "rocu:ip:" + origin, 50, now);
+        if (wait == 0) wait = consume(origins, "rocu:total", 200, now);
+        if (wait > 0) throw new RateLimitException((wait + 999) / 1000);
+    }
+
     private long consume(Cache<String, RateLimitRecord> cache, String key, int limit, long now) {
         AtomicLong waitMs = new AtomicLong();
         cache.asMap().compute(key, (ignored, old) -> {
