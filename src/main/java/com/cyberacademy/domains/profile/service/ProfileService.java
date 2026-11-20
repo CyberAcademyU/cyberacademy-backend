@@ -119,6 +119,7 @@ public class ProfileService {
                 user.getFirstName(),
                 user.getLastName(),
                 user.getEmail(),
+                user.getGoogleSubject() != null,
                 user.getRole().name(),
                 user.getDisplayName(),
                 GamificationService.publicName(user.getDisplayName(), user.getFirstName(), user.getLastName()),
