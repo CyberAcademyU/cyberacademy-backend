@@ -29,6 +29,7 @@ public class ProfileService {
     private final RateLimitService rateLimitService;
     private final SessionService authService;
     private final PasswordTransportService passwordTransport;
+    private final ProfilePhotoRepository photos;
 
     public ProfileService(UserRepository userRepository,
                           CurrentUserProvider currentUserProvider,
@@ -36,7 +37,7 @@ public class ProfileService {
                           PasswordService passwordService,
                           RateLimitService rateLimitService,
                           SessionService authService,
-                          PasswordTransportService passwordTransport) {
+                          PasswordTransportService passwordTransport, ProfilePhotoRepository photos) {
         this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
         this.gamificationService = gamificationService;
@@ -44,6 +45,7 @@ public class ProfileService {
         this.rateLimitService = rateLimitService;
         this.authService = authService;
         this.passwordTransport = passwordTransport;
+        this.photos = photos;
     }
 
     @Transactional(readOnly = true)
@@ -66,6 +68,11 @@ public class ProfileService {
         user.setBio(optional(request.getBio()));
         user.setCountry(optional(request.getCountry()));
         user.setAvatar(optional(request.getAvatar()));
+        if (user.getAvatar() != null) {
+            if (user.getRole() == com.cyberacademy.domains.auth.model.UserRole.ADMIN)
+                throw new BadRequestException("El administrador solo puede usar una foto de perfil.");
+            photos.delete(user.getId());
+        }
         user.setShowInLeaderboard(request.getShowInLeaderboard());
         user.setUpdatedAt(OffsetDateTime.now());
 
@@ -126,6 +133,7 @@ public class ProfileService {
                 user.getBio(),
                 user.getCountry(),
                 user.getAvatar(),
+                photos.url(user.getId()),
                 user.isShowInLeaderboard(),
                 user.getCreatedAt(),
                 stats.xp(),
