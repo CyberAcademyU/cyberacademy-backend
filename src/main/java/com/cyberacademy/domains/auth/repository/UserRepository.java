@@ -17,6 +17,7 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmailIgnoreCase(String email);
+    Optional<User> findByGoogleSubject(String googleSubject);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<User> findLockedByEmailIgnoreCase(String email);
     boolean existsByEmailIgnoreCase(String email);
