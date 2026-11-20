@@ -47,4 +47,13 @@ public class ProfilePhotoRepository {
     public void delete(UUID userId) {
         jdbc.update("DELETE FROM profile_photos WHERE user_id = :id", Map.of("id", userId));
     }
+
+    public void convertLegacy(UUID version, byte[] image) {
+        // No reinsertar una foto borrada/reemplazada mientras se estaba convirtiendo.
+        // No reescribir una miniatura que otra petición ya convirtió.
+        jdbc.update("""
+            UPDATE profile_photos SET image = :image
+            WHERE version = :version AND substring(image FROM 1 FOR 2) = decode('ffd8', 'hex')
+            """, Map.of("version", version, "image", image));
+    }
 }
