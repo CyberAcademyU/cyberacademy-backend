@@ -28,8 +28,10 @@ public class ProfilePhotoController {
     }
     @GetMapping("/photos/{version}")
     public ResponseEntity<byte[]> photo(@PathVariable UUID version) {
-        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG)
+        byte[] image = service.read(version);
+        MediaType type = ProfilePhotoService.isWebp(image) ? MediaType.parseMediaType("image/webp") : MediaType.IMAGE_JPEG;
+        return ResponseEntity.ok().contentType(type)
                 .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options", "nosniff")
-                .body(service.read(version));
+                .body(image);
     }
 }
