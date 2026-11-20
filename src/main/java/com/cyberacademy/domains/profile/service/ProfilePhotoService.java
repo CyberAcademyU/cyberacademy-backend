@@ -5,6 +5,8 @@ import com.cyberacademy.domains.auth.repository.UserRepository;
 import com.cyberacademy.domains.auth.service.RateLimitService;
 import com.cyberacademy.security.CurrentUserProvider;
 import com.cyberacademy.domains.profile.dto.ProfileResponse;
+import dev.matrixlab.webp4j.WebPCodec;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -29,6 +31,12 @@ public class ProfilePhotoService {
     public ProfilePhotoService(ProfilePhotoRepository photos, UserRepository users,
             CurrentUserProvider current, ProfileService profiles, RateLimitService limits) {
         this.photos = photos; this.users = users; this.current = current; this.profiles = profiles; this.limits = limits;
+    }
+
+    @PostConstruct
+    void verifyWebpSupport() {
+        if (!WebPCodec.isAvailable())
+            throw new IllegalStateException("El conversor WebP no está disponible en esta plataforma.");
     }
 
     @Transactional
@@ -67,7 +75,7 @@ public class ProfilePhotoService {
         return profiles.getMyProfile();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public byte[] read(UUID version) {
         User viewer = current.requireCurrentUser();
         var photo = photos.find(version).orElseThrow(ProfilePhotoService::notFound);
@@ -77,10 +85,23 @@ public class ProfilePhotoService {
         boolean leaderboard = viewer.getRole() == UserRole.STUDENT && owner.getRole() == UserRole.STUDENT
                 && owner.isShowInLeaderboard() && owner.getStatus() == UserStatus.ACTIVE && owner.isEmailVerified();
         if (!self && !admin && !leaderboard) throw notFound();
-        return photo.image();
+        byte[] image = photo.image();
+        // Convertir miniaturas antiguas una sola vez, después de validar permisos.
+        // Si el conversor está ocupado, servir el JPEG válido y reintentar después.
+        if (!isWebp(image) && capacity.tryAcquire()) {
+            try {
+                byte[] converted = normalize(image);
+                photos.convertLegacy(version, converted);
+                return converted;
+            } catch (IOException | IllegalArgumentException | ResponseStatusException e) {
+                // Las fotos existentes siguen disponibles aunque falle una conversión.
+                return image;
+            } finally { capacity.release(); }
+        }
+        return image;
     }
 
-    /** Bound pixels before decoding; re-encode PNG/JPEG without metadata. */
+    /** Bound pixels before decoding; re-encode PNG/JPEG to WebP without metadata. */
     static byte[] normalize(byte[] bytes) throws IOException {
         if (bytes.length == 0 || bytes.length > 2 * 1024 * 1024) throw invalid();
         try (var input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
@@ -103,13 +124,20 @@ public class ProfilePhotoService {
                     graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
                     graphics.drawImage(source, 0, 0, 256, 256, x, y, x + edge, y + edge, null);
                 } finally { graphics.dispose(); source.flush(); }
-                var out = new ByteArrayOutputStream();
-                ImageIO.write(target, "jpeg", out);
-                target.flush();
-                if (out.size() > 262144) throw invalid();
-                return out.toByteArray();
+                try {
+                    // Calidad visual alta; no lanzar hilos nativos adicionales por foto.
+                    byte[] encoded = WebPCodec.encodeImage(target, 82.0f, false, false);
+                    if (encoded.length > 262144) throw invalid();
+                    return encoded;
+                } finally { target.flush(); }
             } finally { reader.dispose(); }
         }
+    }
+
+    public static boolean isWebp(byte[] image) {
+        return image.length >= 12 && image[0] == 'R' && image[1] == 'I'
+                && image[2] == 'F' && image[3] == 'F' && image[8] == 'W'
+                && image[9] == 'E' && image[10] == 'B' && image[11] == 'P';
     }
 
     private static ResponseStatusException invalid() {

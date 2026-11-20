@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 import javax.imageio.ImageIO;
+import dev.matrixlab.webp4j.WebPCodec;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.*;
@@ -37,13 +38,39 @@ class ProfilePhotoServiceTest {
         return out.toByteArray();
     }
 
-    @Test void convertsPngToSmallJpeg() throws Exception {
+    @Test void convertsPngToSmallWebp() throws Exception {
         byte[] sanitized = ProfilePhotoService.normalize(image("png", 600, 400));
-        var result = ImageIO.read(new ByteArrayInputStream(sanitized));
+        var result = WebPCodec.decodeImage(sanitized);
         assertEquals(256, result.getWidth());
         assertEquals(256, result.getHeight());
-        assertEquals(0xff, sanitized[0] & 0xff);
+        assertTrue(ProfilePhotoService.isWebp(sanitized));
         assertTrue(sanitized.length <= 262144);
+    }
+
+    @Test void convertsLegacyJpegOnceAndKeepsItsVersion() throws Exception {
+        var owner = user(UserRole.STUDENT, true);
+        UUID version = UUID.randomUUID();
+        byte[] jpeg = image("jpeg", 256, 256);
+        when(current.requireCurrentUser()).thenReturn(owner);
+        when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
+        when(photos.find(version)).thenReturn(Optional.of(new ProfilePhotoRepository.Photo(owner.getId(), jpeg)));
+        byte[] converted = service.read(version);
+        assertTrue(ProfilePhotoService.isWebp(converted));
+        verify(photos).convertLegacy(eq(version), eq(converted));
+        when(photos.find(version)).thenReturn(Optional.of(new ProfilePhotoRepository.Photo(owner.getId(), converted)));
+        assertArrayEquals(converted, service.read(version));
+        verify(photos, times(1)).convertLegacy(any(), any());
+    }
+
+    @Test void webpIsSmallerThanJpegForRepresentativeGradient() throws Exception {
+        var source = new BufferedImage(256, 256, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 256; y++) for (int x = 0; x < 256; x++)
+            source.setRGB(x, y, (x << 16) | (y << 8) | ((x + y) / 2));
+        var out = new ByteArrayOutputStream();
+        ImageIO.write(source, "jpeg", out);
+        byte[] webp = ProfilePhotoService.normalize(out.toByteArray());
+        assertTrue(webp.length < out.size());
+        System.out.println("Miniatura de prueba: JPEG=" + out.size() + " bytes; WebP=" + webp.length + " bytes");
     }
 
     @Test void rejectsSvgGifAndOversize() throws Exception {
