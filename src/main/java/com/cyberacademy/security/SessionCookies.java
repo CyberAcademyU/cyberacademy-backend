@@ -26,6 +26,10 @@ public class SessionCookies {
         set(response, REFRESH, "", REFRESH_PATH, 0);
     }
 
+    public void googleNonce(HttpServletResponse response, String nonce) {
+        set(response, "ca_google_nonce", nonce, "/api/v1/auth/google", nonce.isEmpty() ? 0 : 600);
+    }
+
     private void set(HttpServletResponse response, String name, String value, String path, long seconds) {
         response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from(name, value).httpOnly(true)
                 .secure(secure).sameSite("Strict").path(path).maxAge(seconds).build().toString());

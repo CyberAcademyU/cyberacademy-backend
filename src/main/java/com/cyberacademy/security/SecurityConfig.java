@@ -49,6 +49,7 @@ public class SecurityConfig {
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 // Rutas públicas de autenticación
                 .requestMatchers("/auth/me").authenticated()
+                .requestMatchers("/auth/google/link").authenticated()
                 .requestMatchers("/auth/**").permitAll()
                 // Catálogo público (página "Explorar"): solo GET
                 .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
