@@ -19,6 +19,8 @@ public record StudentOverviewResponse(
         String firstName,
         String lastName,
         String email,
+        String avatar,
+        String photoUrl,
         UserStatus status,
         int modulesCompleted,
         int modulesTotal,
