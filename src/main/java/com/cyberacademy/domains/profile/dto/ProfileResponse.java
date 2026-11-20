@@ -15,6 +15,7 @@ public record ProfileResponse(
         String firstName,
         String lastName,
         String email,
+        boolean googleLinked,
         String role,
         String displayName,
         String publicName,
