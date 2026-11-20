@@ -2,6 +2,8 @@ package com.cyberacademy.domains.rocu;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -70,5 +72,31 @@ class GeminiServiceTest {
         var error = assertThrows(ResponseStatusException.class, () -> service.reply(chat));
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, error.getStatusCode());
         assertFalse(error.getMessage().contains("provider details"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "¿Cómo inicio sesión con Google?",
+            "¿Cómo me registro?",
+            "¿Con Google también me llega el código de 6 dígitos?",
+            "Me registré con Google, ¿cuál es mi contraseña?",
+            "¿Cómo entro con correo y contraseña si me registré con Google?",
+            "¿Cómo vinculo Google desde mi perfil de administrador?"
+    })
+    void suppliesGoogleAndPasswordGuidanceForWebsiteQuestions(String question) {
+        classifyAs("SOBRE_LA_WEB");
+        server.expect(anything())
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("sin código OTP adicional de CyberAcademy")))
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("¿Olvidaste tu contraseña?")))
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("no se fusionan cuentas")))
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("administrador, en el menú de su panel")))
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("la contraseña anterior sigue siendo válida")))
+                .andExpect(jsonPath("$.systemInstruction.parts[0].text").value(org.hamcrest.Matchers.containsString("Nunca resuelvas preguntas de los módulos")))
+                .andRespond(withSuccess("""
+                        {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"Consulta la opción correspondiente en tu perfil."}]}}]}
+                        """, MediaType.APPLICATION_JSON));
+        assertEquals("Consulta la opción correspondiente en tu perfil.",
+                service.reply(new RocuController.Chat(question, List.of())));
+        server.verify();
     }
 }
