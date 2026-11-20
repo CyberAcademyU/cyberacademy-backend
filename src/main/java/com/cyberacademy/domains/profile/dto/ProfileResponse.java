@@ -22,6 +22,7 @@ public record ProfileResponse(
         String bio,
         String country,
         String avatar,
+        String photoUrl,
         boolean showInLeaderboard,
         OffsetDateTime createdAt,
         long xp,
