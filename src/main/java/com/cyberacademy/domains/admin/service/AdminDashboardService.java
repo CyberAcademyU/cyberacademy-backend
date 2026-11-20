@@ -9,6 +9,7 @@ import com.cyberacademy.domains.admin.model.AdminStudentRow;
 import com.cyberacademy.domains.admin.repository.AdminDashboardRepository;
 import com.cyberacademy.domains.auth.model.UserStatus;
 import com.cyberacademy.domains.module.model.ProgressStatus;
+import com.cyberacademy.domains.profile.service.ProfilePhotoRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,14 +32,18 @@ public class AdminDashboardService {
     private static final int RECENT_ACTIVITY_LIMIT = 8;
 
     private final AdminDashboardRepository adminDashboardRepository;
+    private final ProfilePhotoRepository photos;
 
-    public AdminDashboardService(AdminDashboardRepository adminDashboardRepository) {
+    public AdminDashboardService(AdminDashboardRepository adminDashboardRepository, ProfilePhotoRepository photos) {
         this.adminDashboardRepository = adminDashboardRepository;
+        this.photos = photos;
     }
 
     @Transactional(readOnly = true)
     public List<StudentOverviewResponse> listStudents() {
-        return adminDashboardRepository.students().stream().map(this::toStudent).toList();
+        var rows = adminDashboardRepository.students();
+        var identities = photos.identities(rows.stream().map(AdminStudentRow::getId).toList());
+        return rows.stream().map(row -> toStudent(row, identities.get(row.getId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -116,12 +121,14 @@ public class AdminDashboardService {
                 completionPercent);
     }
 
-    private StudentOverviewResponse toStudent(AdminStudentRow row) {
+    private StudentOverviewResponse toStudent(AdminStudentRow row, ProfilePhotoRepository.Identity identity) {
         return new StudentOverviewResponse(
                 row.getId(),
                 row.getFirstName(),
                 row.getLastName(),
                 row.getEmail(),
+                identity == null ? null : identity.avatar(),
+                identity == null ? null : identity.photoUrl(),
                 UserStatus.valueOf(row.getStatus()),
                 row.getModulesCompleted().intValue(),
                 row.getModulesTotal().intValue(),

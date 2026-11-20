@@ -9,6 +9,7 @@ import com.cyberacademy.domains.gamification.model.League;
 import com.cyberacademy.domains.gamification.model.ModuleResultRow;
 import com.cyberacademy.domains.gamification.repository.GamificationRepository;
 import com.cyberacademy.domains.module.repository.CourseModuleRepository;
+import com.cyberacademy.domains.profile.service.ProfilePhotoRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,13 +39,15 @@ public class GamificationService {
     private final GamificationRepository gamificationRepository;
     private final CourseModuleRepository moduleRepository;
     private final ZoneId zone;
+    private final ProfilePhotoRepository photos;
 
     public GamificationService(GamificationRepository gamificationRepository,
                                CourseModuleRepository moduleRepository,
-                               @Value("${app.time-zone:America/Panama}") String zone) {
+                               @Value("${app.time-zone:America/Panama}") String zone, ProfilePhotoRepository photos) {
         this.gamificationRepository = gamificationRepository;
         this.moduleRepository = moduleRepository;
         this.zone = ZoneId.of(zone);
+        this.photos = photos;
     }
 
     // =========================================================================
@@ -54,17 +57,21 @@ public class GamificationService {
     @Transactional(readOnly = true)
     public LeaderboardResponse leaderboard(User me, Period period) {
         List<LeaderboardRow> rows = gamificationRepository.leaderboard(period == Period.WEEK ? startOfWeek() : BEGINNING);
+        var imageIds = new ArrayList<>(rows.stream().filter(row -> row.getRanking() != null)
+                .limit(LEADERBOARD_SIZE).map(LeaderboardRow::getUserId).toList());
+        imageIds.add(me.getId());
+        var identities = photos.identities(imageIds);
 
         List<LeaderboardEntryResponse> entries = rows.stream()
                 .filter(row -> row.getRanking() != null)
                 .limit(LEADERBOARD_SIZE)
-                .map(row -> toEntry(row, me))
+                .map(row -> toEntry(row, me, identities))
                 .toList();
 
         LeaderboardEntryResponse mine = rows.stream()
                 .filter(row -> row.getUserId().equals(me.getId()))
                 .findFirst()
-                .map(row -> toEntry(row, me))
+                .map(row -> toEntry(row, me, identities))
                 .orElse(null);
 
         long totalRanked = rows.stream().filter(row -> row.getRanking() != null).count();
@@ -153,11 +160,12 @@ public class GamificationService {
         return row.getScore() != null && ("COMPLETED".equals(row.getStatus()) || "FAILED".equals(row.getStatus()));
     }
 
-    private LeaderboardEntryResponse toEntry(LeaderboardRow row, User me) {
+    private LeaderboardEntryResponse toEntry(LeaderboardRow row, User me, Map<UUID, ProfilePhotoRepository.Identity> identities) {
         return new LeaderboardEntryResponse(
                 row.getRanking() == null ? null : row.getRanking().intValue(),
                 row.getPublicName(),
                 row.getAvatar(),
+                identities.containsKey(row.getUserId()) ? identities.get(row.getUserId()).photoUrl() : null,
                 row.getXp(),
                 row.getModulesCompleted(),
                 LeagueResponse.of(League.forXp(row.getTotalXp())),
