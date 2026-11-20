@@ -22,7 +22,9 @@ public class GeminiService {
     private static final String CLASSIFY = """
         Clasifica la intención del último mensaje. Usa el historial solo para entender seguimientos como «¿y si no llega?».
         Responde con una sola etiqueta: CIBERSEGURIDAD (prevención, conceptos, protección o recuperación),
-        SOBRE_LA_WEB (uso de CyberAcademy por estudiantes, incluso dudas de registro, OTP o módulos),
+        SOBRE_LA_WEB (uso de CyberAcademy por estudiantes y administradores, incluso dudas de registro,
+        inicio de sesión con Google, vincular Google, contraseña de una cuenta creada con Google,
+        recuperación de contraseña, código de 6 dígitos, OTP, perfil o módulos),
         EVALUACION (resolver preguntas, ejercicios o prácticas de un módulo, incluidas preguntas reformuladas,
         listas de opciones sin petición explícita, verdadero/falso, confirmar una elección, eliminar distractores
         o pedir una pista que identifique la respuesta). EVALUACION tiene prioridad incluso si el tema es
@@ -36,12 +38,39 @@ public class GeminiService {
         """;
     private static final String WEB_HELP = """
         Para dudas sobre CyberAcademy usa estos datos de la interfaz:
-        Registro: escribe nombres, apellidos y correo; pulsa Continuar, revisa la dirección y pulsa «Sí, enviar código».
+        Responde solo la duda planteada; no recites todos los flujos si no los pide. Distingue registro normal,
+        registro con Google y vinculación de una cuenta existente. Si no está claro cómo se registró, pregunta.
+        Registro normal: escribe nombres, apellidos y correo; pulsa Continuar, revisa la dirección y pulsa «Sí, enviar código».
         El código OTP llega al correo indicado. Revisa bandeja principal y spam/correo no deseado; no garantices una carpeta.
         Son 6 dígitos, caduca en 15 minutos y admite 5 intentos. Usa «Reenviar código» cuando termine la cuenta atrás.
         Si la dirección es incorrecta, usa «Usar otro correo». Introduce el código solo en la pantalla de verificación,
         elige y repite una contraseña de 8 a 128 caracteres y pulsa «Activar cuenta».
         Inicia sesión con correo y contraseña. Si la olvidaste, usa «¿Olvidaste tu contraseña?».
+        Google en inicio de sesión y registro: pulsa «Continuar con Google», selecciona tu cuenta en la ventana
+        oficial de Google y completa las comprobaciones que Google solicite. No escribas la contraseña de Google
+        en el formulario de CyberAcademy ni se la compartas a Rocu.
+        Cuenta nueva con Gmail o Google Workspace verificado: se crea como estudiante y entra directamente,
+        sin código OTP adicional de CyberAcademy. Google ya verificó el correo; su posible verificación en dos pasos
+        es independiente del código de 6 dígitos del registro normal. El registro normal sigue usando ese código.
+        Si Google usa un correo externo que no es Gmail ni Workspace, primero hay que verificarlo mediante
+        el registro normal. La interfaz de vinculación del perfil solo se ofrece para direcciones @gmail.com;
+        no prometas que se puede vincular un correo externo desde esa pantalla.
+        Si el correo ya tiene una cuenta de CyberAcademy y Google no está vinculado, no se fusionan cuentas
+        automáticamente. Entra con tu correo y contraseña habituales (o recupérala si la olvidaste); luego vincula
+        Google desde tu perfil para conservar tus datos y progreso. No necesitas crear otra cuenta.
+        Vincular Google: estudiante, abre «Mi perfil»; administrador, en el menú de su panel abre «Mi perfil».
+        En «Cuenta y seguridad», si el correo es @gmail.com y aún no está vinculado, aparece
+        «Vincular mi cuenta de Google». Pulsa «Continuar con Google» y elige la misma dirección del perfil.
+        Al éxito aparece un check verde, el aviso dura 3 segundos y el estado cambia a «Cuenta vinculada»
+        sin recargar. El botón de vincular desaparece si ya está vinculada. El rol no cambia por vincular Google.
+        Contraseña tras registro con Google: no hay una contraseña de CyberAcademy que debas conocer;
+        entra con «Continuar con Google». CyberAcademy nunca recibe tu contraseña de Google.
+        Si quieres entrar también con correo y contraseña, desde inicio de sesión usa «¿Olvidaste tu contraseña?»,
+        indica el mismo correo, verifica el código recibido y establece una contraseña propia de CyberAcademy.
+        Después podrás usar ambos métodos. Si vinculaste Google a una cuenta que ya tenía contraseña,
+        la contraseña anterior sigue siendo válida. Nunca digas que se puede consultar o revelar una contraseña.
+        No solicites tokens, credenciales, contraseñas ni el código OTP en el chat: se introducen solo en las
+        pantallas oficiales correspondientes. No afirmes saber si una cuenta concreta está vinculada o si llegó el correo.
         En el panel del estudiante, «Empezar módulo» o «Continuar módulo» abre la sesión disponible.
         Los módulos combinan teoría, preguntas de comprensión y una práctica con nota. El catálogo muestra
         el criterio de aprobación de cada módulo; «Mis resultados» permite consultar el avance.
