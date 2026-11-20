@@ -24,6 +24,12 @@ public class User {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
+    @Column(name = "google_subject", unique = true)
+    private String googleSubject;
+
+    public String getGoogleSubject() { return googleSubject; }
+    public void setGoogleSubject(String value) { googleSubject = value; }
+
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 

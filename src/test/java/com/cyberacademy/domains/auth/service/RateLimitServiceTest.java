@@ -10,6 +10,7 @@ import com.cyberacademy.exception.RateLimitException;
 import com.cyberacademy.security.JwtService;
 import com.cyberacademy.security.OtpProtectionService;
 import com.cyberacademy.security.PasswordService;
+import com.cyberacademy.security.PasswordTransportService;
 import com.cyberacademy.security.SecurityConfig;
 import com.cyberacademy.security.JwtAuthenticationFilter;
 import org.junit.jupiter.api.Test;
@@ -28,8 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RateLimitServiceTest {
     @Test
     void corsExposesRetryAfterToFrontend() {
-        SecurityConfig config = new SecurityConfig(mock(JwtService.class), mock(RevokedTokenRepository.class),
-                mock(JwtAuthenticationFilter.class), "https://frontend.example.com");
+        SecurityConfig config = new SecurityConfig(mock(JwtAuthenticationFilter.class), "https://frontend.example.com");
         var request = new MockHttpServletRequest("POST", "/auth/login");
         assertTrue(config.corsConfigurationSource().getCorsConfiguration(request).getExposedHeaders().contains("Retry-After"));
     }
@@ -62,11 +62,14 @@ class RateLimitServiceTest {
         UserRepository users = mock(UserRepository.class);
         EmailService email = mock(EmailService.class);
         PasswordService passwords = mock(PasswordService.class);
+        PasswordTransportService transport = new PasswordTransportService("test-secret-at-least-32-bytes-long", false);
         AuthService auth = new AuthService(users, mock(EmailOtpRepository.class), mock(RevokedTokenRepository.class),
                 limits, passwords, mock(OtpProtectionService.class), mock(JwtService.class), email,
-                mock(EmailAddressVerifier.class));
-        PasswordResetService reset = new PasswordResetService(users, mock(PasswordResetCodeRepository.class), passwords, limits, email);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthController(auth, reset))
+                mock(EmailAddressVerifier.class), transport);
+        PasswordResetService reset = new PasswordResetService(users, mock(PasswordResetCodeRepository.class), passwords, limits, email, transport);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthController(auth, reset,
+                mock(com.cyberacademy.security.SessionService.class), new com.cyberacademy.security.SessionCookies(true),
+                mock(com.cyberacademy.security.CurrentUserProvider.class), limits, transport))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
 
         for (int i = 0; i < 5; i++) {
