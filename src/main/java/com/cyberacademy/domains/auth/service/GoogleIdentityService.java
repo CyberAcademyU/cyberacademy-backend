@@ -47,7 +47,7 @@ public class GoogleIdentityService {
     }
 
     @Transactional
-    public User resolve(Jwt jwt, User linking) {
+    public User resolve(Jwt jwt, User linking, String firstName, String lastName) {
         String email = jwt.getClaimAsString("email").strip().toLowerCase(Locale.ROOT);
         var known = users.findByGoogleSubject(jwt.getSubject());
         User user;
@@ -63,12 +63,17 @@ public class GoogleIdentityService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Inicia sesión con tu contraseña y vincula Google desde tu perfil.");
             if (!email.endsWith("@gmail.com") && !jwt.hasClaim("hd"))
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Verifica este correo mediante el registro normal y vincula Google desde tu perfil.");
+            // No crear usuario ni sesión hasta que confirme sus propios datos.
+            if (firstName == null && lastName == null)
+                throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED, "Completa tu nombre y apellido para crear tu cuenta con Google.");
+            String confirmedFirst = confirmedName(firstName);
+            String confirmedLast = confirmedName(lastName);
             user = new User();
             user.setRole(UserRole.STUDENT);
             user.setStatus(UserStatus.ACTIVE);
             user.setEmail(email);
-            user.setFirstName(name(jwt, "given_name", "Estudiante"));
-            user.setLastName(name(jwt, "family_name", ""));
+            user.setFirstName(confirmedFirst);
+            user.setLastName(confirmedLast);
             user.setEmailVerified(true);
             user.setEmailVerifiedAt(OffsetDateTime.now());
             user.setPasswordHash(passwords.hashPassword(UUID.randomUUID().toString()));
@@ -80,9 +85,11 @@ public class GoogleIdentityService {
         return users.saveAndFlush(user);
     }
 
-    private static String name(Jwt jwt, String claim, String fallback) {
-        String name = jwt.getClaimAsString(claim);
-        return name == null || name.isBlank() ? fallback : name.substring(0, Math.min(name.length(), 100));
+    private static String confirmedName(String value) {
+        if (value == null || value.strip().length() < 2 || value.strip().length() > 100
+                || value.chars().anyMatch(Character::isISOControl))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Escribe nombre y apellido de entre 2 y 100 caracteres.");
+        return value.strip();
     }
 
     private static ResponseStatusException invalid() {
