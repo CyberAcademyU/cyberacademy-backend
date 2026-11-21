@@ -58,6 +58,7 @@ public class SecurityConfig {
                 .requestMatchers("/error").permitAll()
                 // Panel de administración: solo ADMIN (además del @PreAuthorize del controlador)
                 .requestMatchers("/admin/**").hasRole("ADMIN")
+                .requestMatchers("/messages", "/messages/**").hasRole("STUDENT")
                 // Cualquier otra requiere autenticación
                 .anyRequest().authenticated()
             )
