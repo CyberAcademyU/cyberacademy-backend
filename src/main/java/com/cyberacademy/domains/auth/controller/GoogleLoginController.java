@@ -14,7 +14,9 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/auth/google")
 public class GoogleLoginController {
-    public record Credential(@NotBlank @Size(max = 8192) String credential) {}
+    public record Credential(@NotBlank @Size(max = 8192) String credential,
+                             @Size(min = 2, max = 100) String firstName,
+                             @Size(min = 2, max = 100) String lastName) {}
     public record Challenge(String clientId, String nonce) {}
     private final GoogleIdentityService google;
     private final SessionCookies cookies;
@@ -36,7 +38,7 @@ public class GoogleLoginController {
         limits.check("google:" + SessionService.hash(body.credential()));
         var token = google.verify(body.credential(), SessionCookies.read(req, "ca_google_nonce"));
         boolean link = req.getRequestURI().endsWith("/link");
-        var user = google.resolve(token, link ? current.requireCurrentUser() : null);
+        var user = google.resolve(token, link ? current.requireCurrentUser() : null, body.firstName(), body.lastName());
         if (!link) cookies.write(res, sessions.create(user.getId()));
         cookies.googleNonce(res, "");
         return ApiResponse.ok(link ? "Cuenta vinculada" : "Sesión iniciada", new AuthResponse(new AuthResponse.UserSummary(
