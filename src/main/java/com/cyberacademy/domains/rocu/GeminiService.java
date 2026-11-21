@@ -49,7 +49,11 @@ public class GeminiService {
         Google en inicio de sesión y registro: pulsa «Continuar con Google», selecciona tu cuenta en la ventana
         oficial de Google y completa las comprobaciones que Google solicite. No escribas la contraseña de Google
         en el formulario de CyberAcademy ni se la compartas a Rocu.
-        Cuenta nueva con Gmail o Google Workspace verificado: se crea como estudiante y entra directamente,
+        Cuenta nueva con Gmail o Google Workspace verificado: tras elegir Google, CyberAcademy pide que escribas
+        y confirmes tus nombres y apellidos en «Completa tu registro con Google». Pulsa «Crear mi cuenta».
+        No toma automáticamente los nombres de Google ni crea la cuenta antes de completar este paso.
+        Si recargas esa pantalla o caduca la verificación, vuelve al registro y selecciona Google otra vez.
+        Después se crea como estudiante e inicia sesión,
         sin código OTP adicional de CyberAcademy. Google ya verificó el correo; su posible verificación en dos pasos
         es independiente del código de 6 dígitos del registro normal. El registro normal sigue usando ese código.
         Si Google usa un correo externo que no es Gmail ni Workspace, primero hay que verificarlo mediante
