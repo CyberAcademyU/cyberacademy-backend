@@ -40,10 +40,13 @@ class SessionServiceTest {
     @BeforeEach void setup() {
         db.execute("DROP TABLE IF EXISTS auth_session_tokens");
         db.execute("DROP TABLE IF EXISTS auth_session_families");
-        db.execute("CREATE TABLE auth_session_families(id UUID PRIMARY KEY,user_id UUID,created_at TIMESTAMP WITH TIME ZONE,expires_at TIMESTAMP WITH TIME ZONE,revoked BOOLEAN DEFAULT FALSE)");
+        db.execute("DROP TABLE IF EXISTS users");
+        db.execute("CREATE TABLE users(id UUID PRIMARY KEY)");
+        db.execute("CREATE TABLE auth_session_families(id UUID PRIMARY KEY,user_id UUID,created_at TIMESTAMP WITH TIME ZONE,expires_at TIMESTAMP WITH TIME ZONE,last_activity_at TIMESTAMP WITH TIME ZONE,revoked BOOLEAN DEFAULT FALSE)");
         db.execute("CREATE TABLE auth_session_tokens(refresh_hash VARCHAR(64) PRIMARY KEY,access_hash VARCHAR(64) UNIQUE,family_id UUID REFERENCES auth_session_families(id) ON DELETE CASCADE,access_expires_at TIMESTAMP WITH TIME ZONE,used BOOLEAN DEFAULT FALSE)");
         reset(users);
         user = new User(); user.setId(UUID.randomUUID()); user.setStatus(UserStatus.ACTIVE); user.setEmailVerified(true);
+        db.update("INSERT INTO users(id) VALUES (?)", user.getId());
         when(users.findById(user.getId())).thenReturn(Optional.of(user));
     }
 
@@ -112,5 +115,70 @@ class SessionServiceTest {
         user.setStatus(UserStatus.SUSPENDED);
         assertNull(sessions.authenticate(other.access()));
         assertNull(sessions.rotate(other.refresh()));
+    }
+
+    @Test void aNewLoginInvalidatesThePreviousAccessAndRefresh() {
+        var first = sessions.create(user.getId());
+        var second = sessions.create(user.getId());
+        assertNull(sessions.authenticate(first.access()));
+        assertNull(sessions.rotate(first.refresh()));
+        assertSame(user, sessions.authenticate(second.access()));
+        assertNotNull(sessions.rotate(second.refresh()));
+    }
+
+    @Test void idleSessionsCannotAuthenticateRefreshOrBeRevived() {
+        var tokens = sessions.create(user.getId());
+        db.update("UPDATE auth_session_families SET last_activity_at=?", OffsetDateTime.now().minusMinutes(15));
+        assertNull(sessions.authenticate(tokens.access()));
+        assertNull(sessions.rotate(tokens.refresh()));
+        assertNull(sessions.activity(tokens.access(), 0));
+        assertNull(sessions.status(tokens.access()));
+    }
+
+    @Test void pollingAndRotationDoNotResetIdleDeadline() {
+        var tokens = sessions.create(user.getId());
+        var last = OffsetDateTime.now().minusMinutes(9).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        db.update("UPDATE auth_session_families SET last_activity_at=?", last);
+        sessions.authenticate(tokens.access());
+        sessions.status(tokens.access());
+        sessions.rotate(tokens.refresh());
+        assertEquals(last.toInstant(), db.queryForObject("SELECT last_activity_at FROM auth_session_families",
+                OffsetDateTime.class).toInstant());
+    }
+
+    @Test void recentInteractionUpdatesOnlyItsOwnFamilyAndNeverMovesTimeBackwards() {
+        var tokens = sessions.create(user.getId());
+        db.update("UPDATE auth_session_families SET last_activity_at=?", OffsetDateTime.now().minusMinutes(10));
+        var status = sessions.activity(tokens.access(), 20000);
+        assertNotNull(status);
+        assertTrue(status.idleRemainingMillis() <= 880100);
+        assertTrue(status.idleRemainingMillis() > 879000);
+        assertNull(sessions.activity(tokens.access(), 60001));
+        assertNull(sessions.activity(tokens.access(), -1));
+        assertNull(sessions.activity("invalid", 0));
+        var after = sessions.activity(tokens.access(), 50000);
+        assertTrue(after.idleRemainingMillis() > 879000);
+    }
+
+    @Test void lateLogoutCannotRevokeANewerSession() {
+        var first = sessions.create(user.getId());
+        var firstId = sessions.status(first.access()).sessionId();
+        var second = sessions.create(user.getId());
+        assertFalse(sessions.revokeExpected(second.access(), firstId));
+        assertFalse(sessions.revokeExpected(second.refresh(), firstId));
+        assertSame(user, sessions.authenticate(second.access()));
+        assertTrue(sessions.revokeExpected(first.refresh(), firstId));
+        assertSame(user, sessions.authenticate(second.access()));
+    }
+
+    @Test void simultaneousLoginsLeaveOnlyOneValidSession() throws Exception {
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            Callable<SessionService.Tokens> login = () -> { start.await(); return sessions.create(user.getId()); };
+            var a = executor.submit(login); var b = executor.submit(login); start.countDown();
+            var first = a.get(10, TimeUnit.SECONDS); var second = b.get(10, TimeUnit.SECONDS);
+            assertTrue((sessions.authenticate(first.access()) == null) != (sessions.authenticate(second.access()) == null));
+            assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM auth_session_families WHERE revoked=false", Integer.class));
+        }
     }
 }
