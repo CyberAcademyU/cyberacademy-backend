@@ -16,6 +16,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/auth")
@@ -127,8 +128,16 @@ public class AuthController {
     }
 
     // La ruta anidada recibe el refresh incluso si el access ya expiró.
+    public record LogoutRequest(UUID sessionId) {}
     @PostMapping({"/logout", "/refresh/logout"})
-    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request, HttpServletResponse response,
+                                                   @RequestBody(required = false) LogoutRequest body) {
+        if (body != null && body.sessionId() != null) {
+            boolean revoked = sessions.revokeExpected(SessionCookies.read(request, SessionCookies.ACCESS), body.sessionId());
+            revoked |= sessions.revokeExpected(SessionCookies.read(request, SessionCookies.REFRESH), body.sessionId());
+            if (revoked) cookies.clear(response);
+            return ResponseEntity.ok(ApiResponse.ok("Sesión cerrada correctamente", null));
+        }
         sessions.revoke(SessionCookies.read(request, SessionCookies.ACCESS));
         sessions.revoke(SessionCookies.read(request, SessionCookies.REFRESH));
         cookies.clear(response);
