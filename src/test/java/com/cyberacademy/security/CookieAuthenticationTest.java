@@ -84,4 +84,20 @@ class CookieAuthenticationTest {
         request.setCookies(new Cookie(SessionCookies.ACCESS, "first"), new Cookie(SessionCookies.ACCESS, "second"));
         assertNull(SessionCookies.read(request, SessionCookies.ACCESS));
     }
+
+    @Test void staleLogoutDoesNotDeleteCookiesFromNewLogin() {
+        var sessions = mock(SessionService.class);
+        var controller = new AuthController(mock(AuthService.class), mock(PasswordResetService.class), sessions,
+                new SessionCookies(true), mock(CurrentUserProvider.class), mock(RateLimitService.class),
+                mock(PasswordTransportService.class));
+        var request = new MockHttpServletRequest();
+        request.setCookies(new Cookie(SessionCookies.ACCESS, "new-access"), new Cookie(SessionCookies.REFRESH, "new-refresh"));
+        var response = new MockHttpServletResponse();
+        UUID old = UUID.randomUUID();
+        controller.logout(request, response, new AuthController.LogoutRequest(old));
+        verify(sessions).revokeExpected("new-access", old);
+        verify(sessions).revokeExpected("new-refresh", old);
+        verify(sessions, never()).revoke(any());
+        assertTrue(response.getHeaders("Set-Cookie").isEmpty());
+    }
 }

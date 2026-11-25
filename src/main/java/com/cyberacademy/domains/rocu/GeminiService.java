@@ -83,6 +83,8 @@ public class GeminiService {
         3 segundos y muestra nombre y apellido del remitente. El texto sigue en la bandeja después.
         «Leer mensaje» marca leído; puede eliminar uno o «Vaciar bandeja» con confirmación. Borrar solo
         afecta su propia bandeja. No hay respuesta al administrador ni notificaciones fuera de la web.
+        La cuenta solo admite una sesión activa: entrar en otro navegador o dispositivo invalida la anterior.
+        Tras 15 minutos sin interacción se cierra la sesión sin aviso previo; las consultas automáticas no cuentan.
         Los módulos combinan teoría, preguntas de comprensión y una práctica con nota. El catálogo muestra
         el criterio de aprobación de cada módulo; «Mis resultados» permite consultar el avance.
         No inventes funciones, notas, entregas de correo o estados de cuentas que no puedes comprobar.
